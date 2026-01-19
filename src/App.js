@@ -23,4 +23,3 @@ function App() {
 }
 
 export default App;
-Codigo de verificacion Private-Cloud-Kelvin

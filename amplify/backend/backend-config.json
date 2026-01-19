@@ -79,5 +79,23 @@
       "providerPlugin": "awscloudformation",
       "service": "Lambda"
     }
+  },
+  "parameters": {
+    "AMPLIFY_function_AdminQueriesaf84bc40_deploymentBucketName": {
+      "usedBy": [
+        {
+          "category": "function",
+          "resourceName": "AdminQueriesaf84bc40"
+        }
+      ]
+    },
+    "AMPLIFY_function_AdminQueriesaf84bc40_s3Key": {
+      "usedBy": [
+        {
+          "category": "function",
+          "resourceName": "AdminQueriesaf84bc40"
+        }
+      ]
+    }
   }
 }
