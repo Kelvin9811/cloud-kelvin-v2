@@ -12,11 +12,11 @@ function App() {
   return (
     <div className="App">
       <header className="App-header">
-        <Authenticator>
+        {/* <Authenticator>
           {({ signOut, user }) => (
             <MainScreen user={user} signOut={signOut} />
           )}
-        </Authenticator>
+        </Authenticator> */}
       </header>
     </div>
   );
