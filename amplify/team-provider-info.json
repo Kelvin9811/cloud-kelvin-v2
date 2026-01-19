@@ -1,0 +1,30 @@
+{
+  "dev": {
+    "awscloudformation": {
+      "AuthRoleName": "amplify-cloudkelvinv2-dev-6045e-authRole",
+      "UnauthRoleArn": "arn:aws:iam::888577064026:role/amplify-cloudkelvinv2-dev-6045e-unauthRole",
+      "AuthRoleArn": "arn:aws:iam::888577064026:role/amplify-cloudkelvinv2-dev-6045e-authRole",
+      "Region": "us-east-1",
+      "DeploymentBucketName": "amplify-cloudkelvinv2-dev-6045e-deployment",
+      "UnauthRoleName": "amplify-cloudkelvinv2-dev-6045e-unauthRole",
+      "StackName": "amplify-cloudkelvinv2-dev-6045e",
+      "StackId": "arn:aws:cloudformation:us-east-1:888577064026:stack/amplify-cloudkelvinv2-dev-6045e/d3381330-f57d-11f0-b03a-0e59ccaeac67",
+      "AmplifyAppId": "d39cw6xhzmdv43"
+    },
+    "categories": {
+      "auth": {
+        "cloudkelvinv28577524a": {},
+        "userPoolGroups": {}
+      },
+      "function": {
+        "AdminQueriesf487834e": {
+          "deploymentBucketName": "amplify-cloudkelvinv2-dev-6045e-deployment",
+          "s3Key": "amplify-builds/AdminQueriesf487834e-59743150322f5a455136-build.zip"
+        }
+      },
+      "api": {
+        "AdminQueries": {}
+      }
+    }
+  }
+}

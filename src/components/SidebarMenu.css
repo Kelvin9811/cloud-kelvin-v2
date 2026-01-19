@@ -1,0 +1,99 @@
+.hamburger {
+  position: fixed;
+  top: 24px;
+  left: 24px;
+  width: 170px;
+  height: 48px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  cursor: pointer;
+  z-index: 1100; /* por encima del sidebar */
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  padding: 0 16px;
+  justify-content: center;
+}
+
+.hamburger div {
+  height: 5px;
+  width: 32px;
+  background: #333;
+  margin: 5px 0;
+  border-radius: 2px;
+
+}
+
+.hamburger-label {
+  font-size: 16px;
+  color: #333;
+  font-weight: 500;
+  user-select: none;
+
+}
+
+.sidebar-menu {
+  position: fixed;
+  top: 0;
+  left: -220px;
+  width: 220px;
+  height: 100%;
+  background: #fff;
+  box-shadow: 2px 0 8px rgba(0,0,0,0.1);
+  transition: left 0.3s;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 70px;
+}
+
+.sidebar-menu.open {
+  left: 0;
+}
+
+.sidebar-menu-content {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.sidebar-menu-list {
+  list-style: none;
+  padding: 0;
+  margin-top: 100;
+  width: 100%;
+  text-align: center;
+}
+
+.sidebar-menu-list li {
+  padding: 24px 16px;
+  cursor: pointer;
+  font-size: 16px;
+  border-bottom: 1px solid #eee;
+  color: #222;
+}
+
+.sidebar-menu-list li:hover {
+  background: #f0f0f0;
+}
+
+.sidebar-logout-btn {
+  width: 100%;
+  padding: 24px 16px;
+  font-size: 16px;
+  background: none;
+  border: none;
+  color: #222;
+  cursor: pointer;
+  border-top: 1px solid #eee;
+  margin-top: auto;
+}
+
+.sidebar-logout-btn:hover {
+  background: #f0f0f0;
+}

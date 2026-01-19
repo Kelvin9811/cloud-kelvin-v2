@@ -1,0 +1,7 @@
+{
+  "dev": {
+    "configLevel": "project",
+    "useProfile": true,
+    "profileName": "Kelvin_Personal_AWS"
+  }
+}
