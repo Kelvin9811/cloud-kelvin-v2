@@ -1,5 +1,5 @@
 {
-  "Description": "{\"createdOn\":\"Windows\",\"createdBy\":\"Amplify\",\"createdWith\":\"14.2.3\",\"stackType\":\"api-API Gateway\",\"metadata\":{\"whyContinueWithGen1\":\"I am a current Gen 1 user\"}}",
+  "Description": "API Gateway Resource for AWS Amplify CLI",
   "AWSTemplateFormatVersion": "2010-09-09",
   "Parameters": {
     "authcloudkelvinv28577524aUserPoolId": {
@@ -291,7 +291,7 @@
         "Name": "AdminQueries"
       }
     },
-    "DeploymentAPIGWAdminQuerieseb22e7ba": {
+    "DeploymentAPIGWAdminQueriesa55ec904": {
       "Type": "AWS::ApiGateway::Deployment",
       "Properties": {
         "Description": "The Development stage deployment of your API.",

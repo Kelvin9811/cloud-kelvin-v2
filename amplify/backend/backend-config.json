@@ -56,8 +56,7 @@
           "attributes": [
             "UserPoolId",
             "AppClientIDWeb",
-            "AppClientID",
-            "IdentityPoolId"
+            "AppClientID"
           ],
           "category": "auth",
           "resourceName": "cloudkelvinv28577524a"
@@ -81,24 +80,6 @@
       ],
       "providerPlugin": "awscloudformation",
       "service": "Lambda"
-    }
-  },
-  "parameters": {
-    "AMPLIFY_function_AdminQueriesf487834e_deploymentBucketName": {
-      "usedBy": [
-        {
-          "category": "function",
-          "resourceName": "AdminQueriesf487834e"
-        }
-      ]
-    },
-    "AMPLIFY_function_AdminQueriesf487834e_s3Key": {
-      "usedBy": [
-        {
-          "category": "function",
-          "resourceName": "AdminQueriesf487834e"
-        }
-      ]
     }
   }
 }

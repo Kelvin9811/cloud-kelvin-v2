@@ -42,7 +42,7 @@
         "s3TemplateURL": "https://s3.amazonaws.com/amplify-cloudkelvinv2-dev-6045e-deployment/amplify-cfn-templates/auth/cloudkelvinv28577524a-cloudformation-template.json",
         "logicalId": "authcloudkelvinv28577524a"
       },
-      "lastPushTimeStamp": "2026-01-19T22:05:51.521Z",
+      "lastPushTimeStamp": "2026-01-19T22:16:31.200Z",
       "output": {
         "UserPoolId": "us-east-1_WTmbjYypv",
         "AppClientIDWeb": "1f9ufkicfm38oba214cn1rridd",
@@ -64,12 +64,11 @@
           "attributes": [
             "UserPoolId",
             "AppClientIDWeb",
-            "AppClientID",
-            "IdentityPoolId"
+            "AppClientID"
           ]
         }
       ],
-      "lastPushTimeStamp": "2026-01-19T22:05:51.521Z",
+      "lastPushTimeStamp": "2026-01-19T22:16:32.125Z",
       "providerMetadata": {
         "s3TemplateURL": "https://s3.amazonaws.com/amplify-cloudkelvinv2-dev-6045e-deployment/amplify-cfn-templates/auth/userPoolGroups-cloudformation-template.json",
         "logicalId": "authuserPoolGroups"
@@ -107,7 +106,7 @@
         "s3TemplateURL": "https://s3.amazonaws.com/amplify-cloudkelvinv2-dev-6045e-deployment/amplify-cfn-templates/function/AdminQueriesf487834e-cloudformation-template.json",
         "logicalId": "functionAdminQueriesf487834e"
       },
-      "lastPushTimeStamp": "2026-01-19T22:05:51.521Z",
+      "lastPushTimeStamp": "2026-01-19T22:16:31.234Z",
       "output": {
         "LambdaExecutionRoleArn": "arn:aws:iam::888577064026:role/AdminQueriesf487834eLambdaRole-dev",
         "Region": "us-east-1",
@@ -144,7 +143,7 @@
         "s3TemplateURL": "https://s3.amazonaws.com/amplify-cloudkelvinv2-dev-6045e-deployment/amplify-cfn-templates/api/AdminQueries-cloudformation-template.json",
         "logicalId": "apiAdminQueries"
       },
-      "lastPushTimeStamp": "2026-01-19T22:05:51.521Z",
+      "lastPushTimeStamp": "2026-01-19T22:16:31.248Z",
       "output": {
         "ApiName": "AdminQueries",
         "RootUrl": "https://hi3m2g8853.execute-api.us-east-1.amazonaws.com/dev",
