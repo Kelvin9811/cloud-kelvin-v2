@@ -1,6 +1,4 @@
 {
-  "identityPoolName": "cloudkelvinv28577524a_identitypool_8577524a",
-  "allowUnauthenticatedIdentities": false,
   "resourceNameTruncated": "cloudk8577524a",
   "userPoolName": "cloudkelvinv28577524a_userpool_8577524a",
   "autoVerifiedAttributes": [
@@ -24,16 +22,18 @@
   "userpoolClientGenerateSecret": false,
   "userpoolClientRefreshTokenValidity": "30",
   "userpoolClientWriteAttributes": [
+    "name",
     "email"
   ],
   "userpoolClientReadAttributes": [
-    "email"
+    "email",
+    "name"
   ],
   "userpoolClientLambdaRole": "cloudk8577524a_userpoolclient_lambda_role",
-  "userpoolClientSetAttributes": false,
+  "userpoolClientSetAttributes": true,
   "sharedId": "8577524a",
   "resourceName": "cloudkelvinv28577524a",
-  "authSelections": "identityPoolAndUserPool",
+  "authSelections": "userPoolOnly",
   "useDefault": "manual",
   "usernameAttributes": [
     "email"
@@ -59,15 +59,14 @@
   },
   "breakCircularDependency": true,
   "dependsOn": [],
-  "thirdPartyAuth": false,
-  "userPoolGroups": true,
-  "adminQueries": true,
+  "userPoolGroups": false,
+  "adminQueries": false,
   "triggers": "{}",
   "hostedUI": false,
   "adminQueryGroup": "admin",
-  "authProviders": [],
   "parentStack": {
     "Ref": "AWS::StackId"
   },
-  "permissions": []
+  "permissions": [],
+  "authProviders": []
 }

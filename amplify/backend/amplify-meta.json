@@ -42,7 +42,7 @@
         "s3TemplateURL": "https://s3.amazonaws.com/amplify-cloudkelvinv2-dev-6045e-deployment/amplify-cfn-templates/auth/cloudkelvinv28577524a-cloudformation-template.json",
         "logicalId": "authcloudkelvinv28577524a"
       },
-      "lastPushTimeStamp": "2026-01-19T22:16:31.200Z",
+      "lastPushTimeStamp": "2026-01-19T22:22:29.858Z",
       "output": {
         "UserPoolId": "us-east-1_WTmbjYypv",
         "AppClientIDWeb": "1f9ufkicfm38oba214cn1rridd",
@@ -52,7 +52,7 @@
         "IdentityPoolName": "cloudkelvinv28577524a_identitypool_8577524a__dev",
         "UserPoolName": "cloudkelvinv28577524a_userpool_8577524a"
       },
-      "lastPushDirHash": "B5KVHx/AeV1/xi3ZxC5Qt+G1An8="
+      "lastPushDirHash": "Uccip3EeaKlzLsSPgGTkhLmgoiQ="
     },
     "userPoolGroups": {
       "service": "Cognito-UserPool-Groups",
@@ -68,7 +68,7 @@
           ]
         }
       ],
-      "lastPushTimeStamp": "2026-01-19T22:16:32.125Z",
+      "lastPushTimeStamp": "2026-01-19T22:22:29.858Z",
       "providerMetadata": {
         "s3TemplateURL": "https://s3.amazonaws.com/amplify-cloudkelvinv2-dev-6045e-deployment/amplify-cfn-templates/auth/userPoolGroups-cloudformation-template.json",
         "logicalId": "authuserPoolGroups"
@@ -106,7 +106,7 @@
         "s3TemplateURL": "https://s3.amazonaws.com/amplify-cloudkelvinv2-dev-6045e-deployment/amplify-cfn-templates/function/AdminQueriesf487834e-cloudformation-template.json",
         "logicalId": "functionAdminQueriesf487834e"
       },
-      "lastPushTimeStamp": "2026-01-19T22:16:31.234Z",
+      "lastPushTimeStamp": "2026-01-19T22:22:29.141Z",
       "output": {
         "LambdaExecutionRoleArn": "arn:aws:iam::888577064026:role/AdminQueriesf487834eLambdaRole-dev",
         "Region": "us-east-1",
@@ -143,7 +143,7 @@
         "s3TemplateURL": "https://s3.amazonaws.com/amplify-cloudkelvinv2-dev-6045e-deployment/amplify-cfn-templates/api/AdminQueries-cloudformation-template.json",
         "logicalId": "apiAdminQueries"
       },
-      "lastPushTimeStamp": "2026-01-19T22:16:31.248Z",
+      "lastPushTimeStamp": "2026-01-19T22:22:29.150Z",
       "output": {
         "ApiName": "AdminQueries",
         "RootUrl": "https://hi3m2g8853.execute-api.us-east-1.amazonaws.com/dev",

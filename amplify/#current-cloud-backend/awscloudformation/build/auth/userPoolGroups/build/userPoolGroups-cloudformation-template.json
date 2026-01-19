@@ -1,5 +1,5 @@
 {
-  "Description": "{\"createdOn\":\"Windows\",\"createdBy\":\"Amplify\",\"createdWith\":\"14.2.3\",\"stackType\":\"auth-Cognito-UserPool-Groups\",\"metadata\":{\"whyContinueWithGen1\":\"I am a current Gen 1 user\"}}",
+  "Description": "Root Stack for AWS Amplify CLI",
   "AWSTemplateFormatVersion": "2010-09-09",
   "Parameters": {
     "env": {
@@ -14,10 +14,6 @@
     "authcloudkelvinv28577524aUserPoolId": {
       "Type": "String",
       "Default": "authcloudkelvinv28577524aUserPoolId"
-    },
-    "authcloudkelvinv28577524aIdentityPoolId": {
-      "Type": "String",
-      "Default": "authcloudkelvinv28577524aIdentityPoolId"
     },
     "authcloudkelvinv28577524aAppClientID": {
       "Type": "String",
@@ -45,53 +41,8 @@
         "Description": "override success",
         "GroupName": "admin",
         "Precedence": 1,
-        "RoleArn": {
-          "Fn::GetAtt": [
-            "adminGroupRole",
-            "Arn"
-          ]
-        },
         "UserPoolId": {
           "Ref": "authcloudkelvinv28577524aUserPoolId"
-        }
-      }
-    },
-    "adminGroupRole": {
-      "Type": "AWS::IAM::Role",
-      "Properties": {
-        "AssumeRolePolicyDocument": {
-          "Version": "2012-10-17",
-          "Statement": [
-            {
-              "Sid": "",
-              "Effect": "Allow",
-              "Principal": {
-                "Federated": "cognito-identity.amazonaws.com"
-              },
-              "Action": "sts:AssumeRoleWithWebIdentity",
-              "Condition": {
-                "StringEquals": {
-                  "cognito-identity.amazonaws.com:aud": {
-                    "Ref": "authcloudkelvinv28577524aIdentityPoolId"
-                  }
-                },
-                "ForAnyValue:StringLike": {
-                  "cognito-identity.amazonaws.com:amr": "authenticated"
-                }
-              }
-            }
-          ]
-        },
-        "RoleName": {
-          "Fn::Join": [
-            "",
-            [
-              {
-                "Ref": "authcloudkelvinv28577524aUserPoolId"
-              },
-              "-adminGroupRole"
-            ]
-          ]
         }
       }
     },
@@ -101,72 +52,9 @@
         "Description": "override success",
         "GroupName": "user",
         "Precedence": 2,
-        "RoleArn": {
-          "Fn::GetAtt": [
-            "userGroupRole",
-            "Arn"
-          ]
-        },
         "UserPoolId": {
           "Ref": "authcloudkelvinv28577524aUserPoolId"
         }
-      }
-    },
-    "userGroupRole": {
-      "Type": "AWS::IAM::Role",
-      "Properties": {
-        "AssumeRolePolicyDocument": {
-          "Version": "2012-10-17",
-          "Statement": [
-            {
-              "Sid": "",
-              "Effect": "Allow",
-              "Principal": {
-                "Federated": "cognito-identity.amazonaws.com"
-              },
-              "Action": "sts:AssumeRoleWithWebIdentity",
-              "Condition": {
-                "StringEquals": {
-                  "cognito-identity.amazonaws.com:aud": {
-                    "Ref": "authcloudkelvinv28577524aIdentityPoolId"
-                  }
-                },
-                "ForAnyValue:StringLike": {
-                  "cognito-identity.amazonaws.com:amr": "authenticated"
-                }
-              }
-            }
-          ]
-        },
-        "RoleName": {
-          "Fn::Join": [
-            "",
-            [
-              {
-                "Ref": "authcloudkelvinv28577524aUserPoolId"
-              },
-              "-userGroupRole"
-            ]
-          ]
-        }
-      }
-    }
-  },
-  "Outputs": {
-    "adminGroupRole": {
-      "Value": {
-        "Fn::GetAtt": [
-          "adminGroupRole",
-          "Arn"
-        ]
-      }
-    },
-    "userGroupRole": {
-      "Value": {
-        "Fn::GetAtt": [
-          "userGroupRole",
-          "Arn"
-        ]
       }
     }
   }
