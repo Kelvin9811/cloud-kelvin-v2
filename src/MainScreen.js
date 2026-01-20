@@ -37,9 +37,10 @@ const MainScreen = ({ user, signOut }) => {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <span className="greeting">Hola <strong>{user?.username}</strong></span>
         </div>
+      <SidebarMenu onSelect={setSelected} signOut={signOut} />
 
         {selected === 'upload' ? (
-          <UploadPage />
+          <UploadPage userId={user?.userId} />
         ) : (
           <Galery images={sampleImages} />
         )}
@@ -51,7 +52,7 @@ const MainScreen = ({ user, signOut }) => {
           ☰
         </button>
         {menuOpen && (
-            <ul className="fab-menu open" role="menu" style={{borderWidth:1, borderStyle:'solid', borderColor:'turquoise'}}>
+            <ul className="fab-menu open" role="menu">
               <button className="fab-menu-item" role="menuitem" onClick={() => { setSelected(null); setMenuOpen(false); }}>
                 <span aria-hidden="true" style={{marginRight:8}}>🏠</span>Inicio
               </button>

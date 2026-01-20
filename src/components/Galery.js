@@ -8,6 +8,10 @@ const Galery = ({ images = [], onDelete }) => {
   const pressPosition = useRef({ x: 0, y: 0 });
   const ignoreClickRef = useRef(false);
 
+  // nuevos refs para mediciones
+  const gridRef = useRef(null);
+  const itemRefs = useRef([]);
+
   const open = (i) => setOpenIndex(i);
   const close = () => setOpenIndex(null);
 
@@ -69,6 +73,42 @@ const Galery = ({ images = [], onDelete }) => {
     closeContextMenu();
   };
 
+  const calculateSpanForImage = (imgEl, idx) => {
+    if (!gridRef.current || !imgEl || !imgEl.naturalWidth) return;
+    const gridWidth = gridRef.current.clientWidth;
+    // breakpoints deben coincidir con CSS (1100, 760, 420)
+    let columns = 4;
+    if (gridWidth <= 420) columns = 1;
+    else if (gridWidth <= 760) columns = 2;
+    else if (gridWidth <= 1100) columns = 3;
+    // gaps en CSS = 12px
+    const gap = 12;
+    const totalGaps = (columns - 1) * gap;
+    const columnWidth = (gridWidth - totalGaps) / columns;
+    const rowHeight = 8; // coincide con grid-auto-rows en CSS
+    const span = Math.max(1, Math.ceil((imgEl.naturalHeight / imgEl.naturalWidth) * columnWidth / rowHeight));
+    const item = itemRefs.current[idx];
+    if (item) item.style.gridRowEnd = `span ${span}`;
+  };
+
+  // recalcula todas las imágenes (ej. al redimensionar)
+  const recalcAllSpans = () => {
+    const imgs = itemRefs.current.map((it) => it?.querySelector('img')).filter(Boolean);
+    imgs.forEach((imgEl, idx) => calculateSpanForImage(imgEl, idx));
+  };
+
+  useEffect(() => {
+    window.addEventListener('resize', recalcAllSpans);
+    return () => window.removeEventListener('resize', recalcAllSpans);
+  }, []);
+
+  // cuando cambian images, limpiar refs
+  useEffect(() => {
+    itemRefs.current = itemRefs.current.slice(0, images.length);
+    // intentar recalcular después de montar las imgs
+    setTimeout(recalcAllSpans, 100);
+  }, [images]);
+
   useEffect(() => {
     const onClick = () => {
       if (contextMenu.visible) closeContextMenu();
@@ -90,21 +130,24 @@ const Galery = ({ images = [], onDelete }) => {
         <p className="galery-empty">No hay imágenes. Conecta tu nube o sube fotos para verlas aquí.</p>
       )}
 
-      <div className="galery-grid">
+      <div className="galery-grid" ref={gridRef}>
         {images.map((img, i) => (
           <button
             key={i}
             className="galery-item"
+            ref={(el) => (itemRefs.current[i] = el)}
             onClick={(e) => {
               if (ignoreClickRef.current) {
                 ignoreClickRef.current = false;
                 return;
               }
-              open(i);
+              setOpenIndex(i);
             }}
             onMouseDown={(e) => startPress(e, i)}
             onMouseUp={() => {
               clearPress();
+              if (contextMenu.visible) closeContextMenu();
+              ignoreClickRef.current = false;
             }}
             onMouseLeave={() => {
               clearPress();
@@ -112,6 +155,8 @@ const Galery = ({ images = [], onDelete }) => {
             onTouchStart={(e) => startPress(e, i)}
             onTouchEnd={() => {
               clearPress();
+              if (contextMenu.visible) closeContextMenu();
+              ignoreClickRef.current = false;
             }}
             onTouchMove={() => {
               clearPress();
@@ -119,7 +164,12 @@ const Galery = ({ images = [], onDelete }) => {
             onContextMenu={(e) => e.preventDefault()}
             aria-label={img.title || `imagen-${i}`}
           >
-            <img src={img.src} alt={img.title || `imagen-${i}`} loading="lazy" />
+            <img
+              src={img.src}
+              alt={img.title || `imagen-${i}`}
+              loading="lazy"
+              onLoad={(e) => calculateSpanForImage(e.target, i)}
+            />
           </button>
         ))}
       </div>

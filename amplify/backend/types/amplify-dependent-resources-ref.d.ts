@@ -10,9 +10,15 @@ export type AmplifyDependentResourcesAttributes = {
     "cloudkelvinv27a3557397a355739": {
       "AppClientID": "string",
       "AppClientIDWeb": "string",
+      "IdentityPoolId": "string",
+      "IdentityPoolName": "string",
       "UserPoolArn": "string",
       "UserPoolId": "string",
       "UserPoolName": "string"
+    },
+    "userPoolGroups": {
+      "adminGroupRole": "string",
+      "usersGroupRole": "string"
     }
   },
   "function": {
@@ -21,6 +27,12 @@ export type AmplifyDependentResourcesAttributes = {
       "LambdaExecutionRole": "string",
       "LambdaExecutionRoleArn": "string",
       "Name": "string",
+      "Region": "string"
+    }
+  },
+  "storage": {
+    "s3b92528f2": {
+      "BucketName": "string",
       "Region": "string"
     }
   }
