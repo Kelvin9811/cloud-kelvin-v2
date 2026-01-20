@@ -1,10 +1,30 @@
+:root {
+  /* Paleta pastel púrpura */
+  --purple-50:  #fbf8ff;
+  --purple-100: #f6f0ff;
+  --purple-200: #eeddff;
+  --purple-300: #dcc3ff;
+  --purple-400: #c9a8ff;
+  --purple-500: #b889ff;
+  --text-dark:   #301d3a;
+  --muted:       rgba(48,29,58,0.65);
+  --amplify-colors-brand-primary-10: #fbf8ff;
+  --amplify-colors-brand-primary-80: #f6f0ff;
+  --amplify-colors-brand-primary-90: #dcc3ff;
+}
+
 .App {
   text-align: center;
+  /* nuevo fondo suave en escala púrpura */
+  background: linear-gradient(135deg, var(--purple-100) 0%, var(--purple-200) 50%, var(--purple-50) 100%);
+  color: var(--text-dark);
+  min-height: 100vh;
 }
 
 .App-logo {
   height: 40vmin;
   pointer-events: none;
+  filter: drop-shadow(0 6px 16px rgba(160,120,255,0.16));
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -14,18 +34,21 @@
 }
 
 .App-header {
-  background-color: #282c34;
+  background: linear-gradient(180deg, rgba(184,137,255,0.08), rgba(184,137,255,0.03));
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   font-size: calc(10px + 2vmin);
-  color: white;
+  color: var(--text-dark);
+  padding: 24px;
+  box-shadow: 0 6px 24px rgba(150,120,255,0.06);
 }
 
+/* Enlaces con acento púrpura */
 .App-link {
-  color: #61dafb;
+  color: var(--purple-500);
 }
 
 @keyframes App-logo-spin {
@@ -35,4 +58,45 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Nuevos estilos para el contenido principal */
+.main-content {
+  padding: 24px;
+  max-width: 980px;
+  margin: 0 auto;
+  color: var(--muted);
+}
+
+.card {
+  background: rgba(255,255,255,0.85);
+  border-radius: 12px;
+  padding: 20px;
+  margin: 12px 0;
+  box-shadow: 0 8px 20px rgba(160,120,255,0.06);
+  border: 1px solid rgba(185,136,255,0.12);
+  color: var(--text-dark);
+}
+
+/* Títulos y textos */
+.main-content h2 {
+  color: var(--text-dark);
+  margin: 0 0 8px;
+}
+
+.main-content p {
+  color: var(--muted);
+}
+
+
+[data-amplify-authenticator] {
+  --amplify-components-authenticator-router-box-shadow: 0 0 16px var(--amplify-colors-overlay-10);
+  --amplify-components-authenticator-router-border-width: 0;
+  --amplify-components-authenticator-form-padding: var(--amplify-space-medium) var(--amplify-space-xl) var(--amplify-space-xl);
+  --amplify-components-button-primary-background-color: var(--amplify-colors-neutral-100);
+  --amplify-components-fieldcontrol-focus-box-shadow: 0 0 0 2px var(--amplify-colors-purple-60);
+  --amplify-components-tabs-item-active-border-color: var(--amplify-colors-neutral-100);
+  --amplify-components-tabs-item-color: var(--amplify-colors-neutral-80);
+  --amplify-components-tabs-item-active-color: var(--amplify-colors-purple-100);
+  --amplify-components-button-link-color: var(--amplify-colors-purple-80);
 }

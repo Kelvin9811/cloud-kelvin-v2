@@ -1,0 +1,100 @@
+.galery-root {
+  /* usa la clase .card para apariencia consistente */
+  overflow: hidden;
+}
+
+/* Título */
+.galery-title {
+  margin: 0 0 12px;
+  color: var(--text-dark);
+}
+
+/* Mensaje vacío */
+.galery-empty {
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+/* Grid responsivo */
+.galery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+/* Item botón que contiene la imagen */
+.galery-item {
+  background: linear-gradient(180deg, rgba(255,255,255,0.6), rgba(255,255,255,0.85));
+  border: 1px solid rgba(185,136,255,0.10);
+  border-radius: 8px;
+  padding: 6px;
+  display: block;
+  cursor: pointer;
+  overflow: hidden;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Imagen dentro de la celda */
+.galery-item img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: cover;
+  border-radius: 6px;
+  display: block;
+}
+
+/* Lightbox overlay */
+.galery-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(34,16,48,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 24px;
+}
+
+/* Contenido del lightbox */
+.galery-lightbox-content {
+  background: linear-gradient(180deg, rgba(251,248,255,0.98), rgba(246,240,255,0.98));
+  border-radius: 12px;
+  padding: 16px;
+  max-width: 92vw;
+  max-height: 92vh;
+  box-shadow: 0 12px 40px rgba(120,80,200,0.18);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Imagen en lightbox */
+.galery-lightbox-content img {
+  max-width: 80vw;
+  max-height: 70vh;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+/* Close button */
+.galery-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  color: var(--text-dark);
+  cursor: pointer;
+}
+
+/* Caption */
+.galery-caption {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 14px;
+}
