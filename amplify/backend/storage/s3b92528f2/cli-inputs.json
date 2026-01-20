@@ -1,0 +1,13 @@
+{
+  "resourceName": "s3b92528f2",
+  "policyUUID": "b92528f2",
+  "bucketName": "cloudkelvinv26ae35849a4104091a533f1be1213b752",
+  "storageAccess": "auth",
+  "guestAccess": [],
+  "authAccess": [
+    "CREATE_AND_UPDATE",
+    "READ",
+    "DELETE"
+  ],
+  "triggerFunction": "NONE"
+}

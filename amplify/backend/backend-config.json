@@ -54,7 +54,8 @@
           "attributes": [
             "UserPoolId",
             "AppClientIDWeb",
-            "AppClientID"
+            "AppClientID",
+            "IdentityPoolId"
           ],
           "category": "auth",
           "resourceName": "cloudkelvinv27a3557397a355739"
@@ -96,6 +97,13 @@
           "resourceName": "AdminQueriesaf84bc40"
         }
       ]
+    }
+  },
+  "storage": {
+    "s3b92528f2": {
+      "dependsOn": [],
+      "providerPlugin": "awscloudformation",
+      "service": "S3"
     }
   }
 }

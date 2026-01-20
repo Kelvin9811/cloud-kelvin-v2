@@ -19,6 +19,7 @@
   background: linear-gradient(135deg, var(--purple-100) 0%, var(--purple-200) 50%, var(--purple-50) 100%);
   color: var(--text-dark);
   min-height: 100vh;
+  width: 100%;
 }
 
 .App-logo {
@@ -63,9 +64,12 @@
 /* Nuevos estilos para el contenido principal */
 .main-content {
   padding: 24px;
-  max-width: 980px;
+  max-width: 1400px;
   margin: 0 auto;
   color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 160px); /* ajusta 160px si tu header/menú ocupa otra altura */
 }
 
 .card {
@@ -88,6 +92,16 @@
   color: var(--muted);
 }
 
+/* Saludo más pequeño */
+.greeting {
+  font-size: 2rem; /* ajusta este valor si quieres más pequeño o más grande */
+  color: var(--text-dark);
+}
+
+/* Opcional: mantener el nombre en negrita ligeramente más destacado */
+.greeting strong {
+  font-weight: 600;
+}
 
 [data-amplify-authenticator] {
   --amplify-components-authenticator-router-box-shadow: 0 0 16px var(--amplify-colors-overlay-10);

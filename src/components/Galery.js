@@ -9,8 +9,6 @@ const Galery = ({ images = [] }) => {
 
   return (
     <div className="galery-root card">
-      <h3 className="galery-title">Mi Nube — Galería</h3>
-
       {images.length === 0 && (
         <p className="galery-empty">No hay imágenes. Conecta tu nube o sube fotos para verlas aquí.</p>
       )}

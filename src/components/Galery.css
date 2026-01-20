@@ -1,12 +1,20 @@
 .galery-root {
   /* usa la clase .card para apariencia consistente */
   overflow: hidden;
+
+  /* nuevo: ocupar todo el espacio disponible dentro del padre flex */
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* importante para permitir que los hijos hagan scroll correctamente */
+  width: 100%;
+      
 }
 
 /* Título */
 .galery-title {
   margin: 0 0 12px;
   color: var(--text-dark);
+    font-size: 20px;
 }
 
 /* Mensaje vacío */
@@ -20,6 +28,11 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 12px;
+
+  /* nuevo: permitir que la cuadrícula crezca y haga scroll si es necesario */
+  flex: 1 1 auto;
+  overflow: auto;
+  padding-bottom: 12px;
 }
 
 /* Item botón que contiene la imagen */

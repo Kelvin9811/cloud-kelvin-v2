@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import SidebarMenu from './components/SidebarMenu';
 import Galery from './components/Galery'; // agregado
+import './App.css';
 
 const MainScreen = ({ user, signOut }) => {
   const [selected, setSelected] = useState(null);
@@ -19,17 +20,9 @@ const MainScreen = ({ user, signOut }) => {
       <SidebarMenu onSelect={setSelected} signOut={signOut} />
       <div className="main-content">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', margin: 24 }}>
-          <span>Hola <strong>{user?.username}</strong></span>
+          <span className="greeting">Hola <strong>{user?.username}</strong></span>
         </div>
-        
-        {!selected && (
-          <div className="card">
-            <h2>Bienvenido al Control de Historias Clínicas</h2>
-            <p>Seleccione una opción en el menú.</p>
-          </div>
-        )}
-
-          <Galery images={sampleImages} />
+        <Galery images={sampleImages} />
       </div>
     </div>
   );
