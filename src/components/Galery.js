@@ -1,22 +1,42 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './Galery.css';
 
 const Galery = ({ images = [], onDelete }) => {
   const [openIndex, setOpenIndex] = useState(null);
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, index: null });
+  const pressTimer = useRef(null);
+  const pressPosition = useRef({ x: 0, y: 0 });
+  const ignoreClickRef = useRef(false);
 
   const open = (i) => setOpenIndex(i);
   const close = () => setOpenIndex(null);
 
-  // abrir menu contextual en la posición del cursor
-  const handleContextMenu = (e, i) => {
-    e.preventDefault();
-    setContextMenu({ visible: true, x: e.clientX, y: e.clientY, index: i });
+  const startPress = (e, i) => {
+    let x = 0, y = 0;
+    if (e.touches && e.touches[0]) {
+      x = e.touches[0].clientX;
+      y = e.touches[0].clientY;
+    } else {
+      x = e.clientX;
+      y = e.clientY;
+    }
+    pressPosition.current = { x, y };
+    clearPress();
+    pressTimer.current = setTimeout(() => {
+      setContextMenu({ visible: true, x: pressPosition.current.x, y: pressPosition.current.y, index: i });
+      ignoreClickRef.current = true;
+    }, 600);
+  };
+
+  const clearPress = () => {
+    if (pressTimer.current) {
+      clearTimeout(pressTimer.current);
+      pressTimer.current = null;
+    }
   };
 
   const closeContextMenu = () => setContextMenu({ visible: false, x: 0, y: 0, index: null });
 
-  // acciones del menu
   const actionOpen = () => {
     if (contextMenu.index != null) open(contextMenu.index);
     closeContextMenu();
@@ -28,7 +48,6 @@ const Galery = ({ images = [], onDelete }) => {
     const url = images[idx].src;
     const a = document.createElement('a');
     a.href = url;
-    // intenta derivar nombre simple
     const name = (images[idx].title || `image-${idx}`).replace(/\s+/g, '_') + '.jpg';
     a.download = name;
     document.body.appendChild(a);
@@ -43,35 +62,30 @@ const Galery = ({ images = [], onDelete }) => {
     if (typeof onDelete === 'function') {
       onDelete(idx);
     } else {
-      // si no hay callback, eliminar localmente (inmediato en UI)
       images.splice(idx, 1);
-      // forzar re-render mínimo:
       setContextMenu({ visible: false, x: 0, y: 0, index: null });
       setOpenIndex(null);
     }
     closeContextMenu();
   };
 
-  // cerrar al hacer clic fuera o al presionar Escape
   useEffect(() => {
-    const onClick = (e) => {
+    const onClick = () => {
       if (contextMenu.visible) closeContextMenu();
     };
     const onKey = (e) => {
       if (e.key === 'Escape') closeContextMenu();
     };
     window.addEventListener('click', onClick);
-    window.addEventListener('contextmenu', onClick); // clic derecho en otro lado
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('click', onClick);
-      window.removeEventListener('contextmenu', onClick);
       window.removeEventListener('keydown', onKey);
     };
   }, [contextMenu.visible]);
 
   return (
-    <div className="galery-root card">
+    <div className="galery-root card" onContextMenu={(e) => e.preventDefault()}>
       {images.length === 0 && (
         <p className="galery-empty">No hay imágenes. Conecta tu nube o sube fotos para verlas aquí.</p>
       )}
@@ -81,8 +95,28 @@ const Galery = ({ images = [], onDelete }) => {
           <button
             key={i}
             className="galery-item"
-            onClick={() => open(i)}
-            onContextMenu={(e) => handleContextMenu(e, i)}
+            onClick={(e) => {
+              if (ignoreClickRef.current) {
+                ignoreClickRef.current = false;
+                return;
+              }
+              open(i);
+            }}
+            onMouseDown={(e) => startPress(e, i)}
+            onMouseUp={() => {
+              clearPress();
+            }}
+            onMouseLeave={() => {
+              clearPress();
+            }}
+            onTouchStart={(e) => startPress(e, i)}
+            onTouchEnd={() => {
+              clearPress();
+            }}
+            onTouchMove={() => {
+              clearPress();
+            }}
+            onContextMenu={(e) => e.preventDefault()}
             aria-label={img.title || `imagen-${i}`}
           >
             <img src={img.src} alt={img.title || `imagen-${i}`} loading="lazy" />

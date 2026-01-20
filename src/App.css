@@ -94,7 +94,7 @@
 
 /* Saludo más pequeño */
 .greeting {
-  font-size: 2rem; /* ajusta este valor si quieres más pequeño o más grande */
+  font-size: 1rem; /* ajusta este valor si quieres más pequeño o más grande */
   color: var(--text-dark);
 }
 
