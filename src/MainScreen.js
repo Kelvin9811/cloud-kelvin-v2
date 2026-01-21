@@ -17,26 +17,26 @@ const MainScreen = ({ user, signOut }) => {
   console.log('User info:', user);
 
   const loadImages = async (userId) => {
-
-
     try {
       const result = await list({
         path: `uploads/users/${userId}/previews/`,
-        // Alternatively, path: ({identityId}) => `protected/${identityId}/photos/`
       });
       const items = result.items || [];
       console.log('Loaded items:', items);
-      const itemsMapped = items.map(item => ({
-        url: getUrl({path: item.path})
-      }));
 
+      // esperar a que getUrl resuelva para cada item
+      const itemsMapped = await Promise.all(
+        items.map(async (item) => ({
+          properties: (await getUrl({ path: item.path })),
+          path: item.path
+        }))
+      );
+
+      console.log('Mapped items with URLs:', itemsMapped);
       setImages(itemsMapped);
-
     } catch (error) {
       console.log(error);
     }
-
-
   };
 
   // cargar imágenes al montar o cuando cambie el usuario
@@ -66,7 +66,7 @@ const MainScreen = ({ user, signOut }) => {
         {selected === 'upload' ? (
           <UploadPage userId={user?.userId} />
         ) : (
-          <Galery images={images} />
+          <Galery images={images} userId={user?.userId}/>
         )}
       </div>
 

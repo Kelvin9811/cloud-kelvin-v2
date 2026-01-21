@@ -33,8 +33,8 @@ const UploadPage = ({ onUpload, userId = '' }) => {
                 const cleanName = file.name.replace(/\s+/g, '_');
 
                 // Rutas
-                const previewPath = `uploads/users/${userId}/previews/${uuid}.jpg`;
-                const finalPath = `uploads/users/${userId}/definitivos/${uuid}_${cleanName}`;
+                const previewPath = `uploads/users/${userId}/previews/${uuid}_${cleanName}`;
+                const finalPath = `uploads/users/${userId}/original/${uuid}_${cleanName}`;
 
                 // Crear preview
                 const previewBlob = await createPreviewImage(file);
