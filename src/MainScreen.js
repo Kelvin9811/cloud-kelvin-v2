@@ -4,21 +4,45 @@ import Galery from './components/Galery'; // agregado
 import UploadPage from './components/UploadPage'; // nuevo componente
 import './App.css';
 import './components/UploadPage.css'; // estilos para FAB y UploadPage
+import { uploadData, getUrl, list } from '@aws-amplify/storage';
 
 const MainScreen = ({ user, signOut }) => {
   const [selected, setSelected] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef();
 
+  // nuevo estado para las imágenes cargadas
+  const [images, setImages] = useState([]);
+
   console.log('User info:', user);
 
-  // imágenes de ejemplo; sustituir por las URLs de tu nube o por prop/fetch
-  const sampleImages = [
-    { src: 'https://images.unsplash.com/photo-1503023345310-bd7c1de61c7d?w=1200&q=60&auto=format&fit=crop', title: 'Paisaje 1' },
-    { src: 'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=1200&q=60&auto=format&fit=crop', title: 'Retrato 2' },
-    { src: 'https://images.unsplash.com/photo-1491553895911-0055eca6402d?w=1200&q=60&auto=format&fit=crop', title: 'Ciudad 3' },
-    // ...existing code...
-  ];
+  const loadImages = async (userId) => {
+
+
+    try {
+      const result = await list({
+        path: `uploads/users/${userId}/previews/`,
+        // Alternatively, path: ({identityId}) => `protected/${identityId}/photos/`
+      });
+      const items = result.items || [];
+      console.log('Loaded items:', items);
+      const itemsMapped = items.map(item => ({
+        url: getUrl({path: item.path})
+      }));
+
+      setImages(itemsMapped);
+
+    } catch (error) {
+      console.log(error);
+    }
+
+
+  };
+
+  // cargar imágenes al montar o cuando cambie el usuario
+  useEffect(() => {
+    loadImages(user?.userId);
+  }, [user]);
 
   // cerrar menú si se hace clic fuera
   useEffect(() => {
@@ -37,12 +61,12 @@ const MainScreen = ({ user, signOut }) => {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <span className="greeting">Hola <strong>{user?.username}</strong></span>
         </div>
-      <SidebarMenu onSelect={setSelected} signOut={signOut} />
+        <SidebarMenu onSelect={setSelected} signOut={signOut} />
 
         {selected === 'upload' ? (
           <UploadPage userId={user?.userId} />
         ) : (
-          <Galery images={sampleImages} />
+          <Galery images={images} />
         )}
       </div>
 
@@ -52,14 +76,14 @@ const MainScreen = ({ user, signOut }) => {
           ☰
         </button>
         {menuOpen && (
-            <ul className="fab-menu open" role="menu">
-              <button className="fab-menu-item" role="menuitem" onClick={() => { setSelected(null); setMenuOpen(false); }}>
-                <span aria-hidden="true" style={{marginRight:8}}>🏠</span>Inicio
-              </button>
-              <button className="fab-menu-item" role="menuitem" onClick={() => { setSelected('upload'); setMenuOpen(false); }}>
-                <span aria-hidden="true" style={{marginRight:8}}>➕</span>Agregar archivos
-              </button>
-            </ul>
+          <ul className="fab-menu open" role="menu">
+            <button className="fab-menu-item" role="menuitem" onClick={() => { setSelected(null); setMenuOpen(false); }}>
+              <span aria-hidden="true" style={{ marginRight: 8 }}>🏠</span>Inicio
+            </button>
+            <button className="fab-menu-item" role="menuitem" onClick={() => { setSelected('upload'); setMenuOpen(false); }}>
+              <span aria-hidden="true" style={{ marginRight: 8 }}>➕</span>Agregar archivos
+            </button>
+          </ul>
         )}
       </div>
     </div>
