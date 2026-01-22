@@ -26,17 +26,10 @@
 /* Grid responsivo */
 .galery-grid {
   display: grid;
-  /* forzar 6 fotos por fila en pantallas normales */
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-auto-rows: 10px;
   gap: 12px;
-
-
-  /* mantener comportamiento de crecimiento y scroll */
-  flex: 1 1 auto;
-  overflow: auto;
-  padding-bottom: 12px;
 }
-
 /* Item botón que contiene la imagen */
 .galery-item {
   background: linear-gradient(180deg, rgba(255,255,255,0.6), rgba(255,255,255,0.85));

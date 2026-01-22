@@ -57,7 +57,7 @@ const Galery = ({ images = [], userId = '' }) => {
     const gap = 12;
     const totalGaps = (columns - 1) * gap;
     const columnWidth = (gridWidth - totalGaps) / columns;
-    const rowHeight = 8; // debe coincidir con grid-auto-rows en CSS
+    const rowHeight = 30; // debe coincidir con grid-auto-rows en CSS
     const span = Math.max(1, Math.ceil((imgEl.naturalHeight / imgEl.naturalWidth) * columnWidth / rowHeight));
     const item = itemRefs.current[idx];
     if (item) item.style.gridRowEnd = `span ${span}`;
@@ -91,7 +91,16 @@ const Galery = ({ images = [], userId = '' }) => {
           <button
             key={i}
             className="galery-item"
-            style={{ width: 'fit-content', height: 'fit-content', display: 'block'}}
+            ref={(el) => {
+              // asignar ref
+              itemRefs.current[i] = el;
+              // si la imagen ya está cargada (por caché), calcular inmediatamente el span
+              const imgEl = el?.querySelector('img');
+              if (imgEl && imgEl.complete && imgEl.naturalWidth) {
+                calculateSpanForImage(imgEl, i);
+              }
+            }}
+
             onClick={() => openOriginal(i)}
             aria-label={img.title || `imagen-${i}`}
           >
