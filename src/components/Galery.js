@@ -12,6 +12,23 @@ const Galery = ({ images = [], userId = '' }) => {
   const open = (i) => setOpenIndex(i);
   const close = () => setOpenIndex(null);
 
+  // helpers para tipo de archivo
+  const getItemSource = (index) =>
+    originalUrls[index] || images[index]?.properties?.url || images[index]?.url || images[index]?.src || '';
+
+  const getExtensionFromUrl = (url) => {
+
+    if (!url || typeof url !== 'string') return '';
+    const clean = url.split('?')[0].split('#')[0];
+    const parts = clean.split('.');
+    if (parts.length === 1) return '';
+    console.log('getExtensionFromUrl:', url, '->', parts.pop().toLowerCase());
+    return parts.pop().toLowerCase();
+  };
+
+  const isVideoExt = (ext) => ['mp4', 'webm', 'mov', 'avi', 'mkv', 'wmv'].includes(ext);
+  const isPdfExt = (ext) => ext === 'pdf';
+
   const handleContextMenu = (e, i) => {
     e.preventDefault();
     setContextMenu({ visible: true, x: e.clientX, y: e.clientY, index: i });
@@ -22,6 +39,7 @@ const Galery = ({ images = [], userId = '' }) => {
       const path = item.path.replace(`uploads/users/${userId}/previews/`, `uploads/users/${userId}/original/`);
       console.log('loadOriginalImage for path:', path);
       const url = await getUrl({ path: path });
+      console.log('Original image URL:', url);
       return url.url;
     } catch (error) {
       console.log('Error loadOriginalImage:', error);
@@ -142,7 +160,44 @@ const Galery = ({ images = [], userId = '' }) => {
         <div className="galery-lightbox" onClick={close} role="dialog" aria-modal="true">
           <div className="galery-lightbox-content" onClick={(e) => e.stopPropagation()}>
             <button className="galery-close" onClick={close} aria-label="Cerrar">✕</button>
-            <img src={originalUrls[openIndex] || images[openIndex]?.properties?.url || images[openIndex]?.url || images[openIndex]?.src} alt={images[openIndex]?.title || ''} />
+            {/* Renderizar según tipo: video / pdf / imagen */}
+            {(() => {
+              console.log('Rendering lightbox for index:', images[openIndex].path);
+              const src = getItemSource(openIndex);
+              console.log('Item source URL:', src);
+              const ext = getExtensionFromUrl(images[openIndex].path);
+              console.log('Determined extension:', ext);
+              if (isVideoExt(ext)) {
+                return (
+                  <video
+                    controls
+                    src={src || images[openIndex]?.properties?.url || images[openIndex]?.url || images[openIndex]?.src}
+                    style={{ maxWidth: '100%', maxHeight: '80vh' }}
+                  >
+                    Tu navegador no soporta la reproducción de este vídeo.
+                  </video>
+                );
+              }
+
+              if (isPdfExt(ext)) {
+                return (
+                  <iframe
+                    src={src || images[openIndex]?.properties?.url || images[openIndex]?.url || images[openIndex]?.src}
+                    title={images[openIndex]?.title || `document-${openIndex}`}
+                    style={{ width: '100%', height: '80vh', border: 'none' }}
+                  />
+                );
+              }
+
+              // fallback: imagen
+              return (
+                <img
+                  src={src || images[openIndex]?.properties?.url || images[openIndex]?.url || images[openIndex]?.src}
+                  alt={images[openIndex]?.title || ''}
+                />
+              );
+            })()}
+
             {images[openIndex]?.title && <div className="galery-caption">{images[openIndex].title}</div>}
           </div>
         </div>

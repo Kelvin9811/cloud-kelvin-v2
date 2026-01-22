@@ -25,7 +25,6 @@ const MainScreen = ({ user, signOut }) => {
         path: `uploads/users/${userId}/previews/`,
         options: { pageSize: 20, nextToken: token ? token : undefined }
       });
-      console.log('List result:', result.items.length);
       const items = result.items || [];
       const itemsMapped = await Promise.all(
         items.map(async (item) => ({
@@ -33,6 +32,8 @@ const MainScreen = ({ user, signOut }) => {
           path: item.path
         }))
       );
+      console.log('List result:', itemsMapped);
+
       setImages((prev) => [...prev, ...itemsMapped]);
       setNextToken(result.nextToken || null);
     } catch (error) {

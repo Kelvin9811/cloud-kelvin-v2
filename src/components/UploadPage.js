@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import './UploadPage.css';
 import { uploadData, getUrl } from '@aws-amplify/storage';
+import PdfLogo from '../images/pdf_logo.png';
 
 const UploadPage = ({ onUpload, userId = '' }) => {
     const [files, setFiles] = useState([]);
@@ -43,13 +44,18 @@ const UploadPage = ({ onUpload, userId = '' }) => {
 
                 try {
                     // Subir preview
-                    console.log('Uploading preview to path:', previewPath);
+                    console.log('Uploading file.type:', file.type);
                     await uploadData({
                         path: previewPath,
                         data: previewBlob,
                         options: {
                             contentType: 'image/jpeg',
                         },
+                        metadata: {
+                            originalName: file.name,
+                            isPreview: 'true',
+                            extension: file.type
+                        }
                     }).result;
 
                     console.log('Uploading final file to path:', finalPath);
@@ -60,6 +66,11 @@ const UploadPage = ({ onUpload, userId = '' }) => {
                         options: {
                             contentType: file.type || 'application/octet-stream',
                         },
+                        metadata: {
+                            originalName: file.name,
+                            isPreview: 'false',
+                            extension: file.type
+                        }
                     }).result;
 
                     console.log('File uploaded successfully:', file.name);
@@ -93,16 +104,40 @@ const UploadPage = ({ onUpload, userId = '' }) => {
     };
 
     const createPreview = (file) => {
-            if (file.name.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i)) {
-                console.log('Creating image thumbnail for jpg|jpeg|png|gif|bmp|webp:', file.name);
-                return createPreviewImage(file);
-            } else if (file.name.match(/\.(mp4|mov|avi|mkv|webm|wmv)$/i)) {
-                console.log('Creating video thumbnail for file mp4|mov|avi|mkv|webm|wmv:', file.name);
-                return createVideoThumbnail(file);
-            } else {
-                console.log('No preview created for file:', file.name);
-            }
-        };
+        if (file.name.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i)) {
+            console.log('Creating image thumbnail for jpg|jpeg|png|gif|bmp|webp:', file.name);
+            return createPreviewImage(file);
+        } else if (file.name.match(/\.(mp4|mov|avi|mkv|webm|wmv)$/i)) {
+            console.log('Creating video thumbnail for file mp4|mov|avi|mkv|webm|wmv:', file.name);
+            return createVideoThumbnail(file);
+        } else if (file.name.match(/\.pdf$/i)) {
+            return createPdfThumbnail(file);
+        } else {
+            console.log('No preview created for file:', file.name);
+        }
+    };
+
+    const createPdfThumbnail = (file, maxSize = 400) =>
+        new Promise((resolve) => {
+            // Use the bundled pdf logo as the preview for PDFs
+            const img = new Image();
+            img.src = PdfLogo;
+
+            img.onload = () => {
+                const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width * scale;
+                canvas.height = img.height * scale;
+                canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+                canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.8);
+            };
+
+            // If the image fails to load, resolve with null so upload flow can skip
+            img.onerror = () => {
+                console.warn('Failed to load PDF logo for thumbnail, skipping preview');
+                resolve(null);
+            };
+        });
 
     const createPreviewImage = (file, maxSize = 400) =>
         new Promise((resolve) => {
@@ -145,12 +180,12 @@ const UploadPage = ({ onUpload, userId = '' }) => {
 
             const cleanup = () => {
                 if (timeoutId) clearTimeout(timeoutId);
-                try { URL.revokeObjectURL(objectUrl); } catch (e) {}
+                try { URL.revokeObjectURL(objectUrl); } catch (e) { }
                 try {
                     video.pause();
                     video.removeAttribute('src');
                     video.load();
-                } catch (e) {}
+                } catch (e) { }
             };
 
             const handleError = (err) => {
@@ -198,7 +233,7 @@ const UploadPage = ({ onUpload, userId = '' }) => {
                     // fallback: try to draw when we can play
                     console.warn('seek failed, falling back to canplay approach', e);
                     video.addEventListener('canplay', () => drawFrameAndResolve(), { once: true });
-                    try { video.play().then(() => video.pause()).catch(() => {}); } catch (_) {}
+                    try { video.play().then(() => video.pause()).catch(() => { }); } catch (_) { }
                 }
             };
 
@@ -228,7 +263,7 @@ const UploadPage = ({ onUpload, userId = '' }) => {
             }, 5000);
 
             // Kick loading
-            try { video.load(); } catch (e) {}
+            try { video.load(); } catch (e) { }
         });
 
 
