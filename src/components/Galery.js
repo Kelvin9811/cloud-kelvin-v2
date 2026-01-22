@@ -54,15 +54,15 @@ const Galery = ({ images = [], userId = '' }) => {
     let rowHeight = 30; // debe coincidir con grid-auto-rows en CSS
     if (gridWidth <= 420) {
       columns = 1;
-      rowHeight = 30;
+      rowHeight = 80;
     }
     else if (gridWidth <= 760) {
       columns = 2;
-      rowHeight = 150;
+      rowHeight = 70;
     }
     else if (gridWidth <= 1100) {
       columns = 3;
-      rowHeight = 150;
+      rowHeight = 50;
     }
     const gap = 12;
     const totalGaps = (columns - 1) * gap;
