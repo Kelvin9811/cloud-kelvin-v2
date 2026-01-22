@@ -5,6 +5,7 @@ import PdfLogo from '../images/pdf_logo.png';
 
 const UploadPage = ({ onUpload, userId = '' }) => {
     const [files, setFiles] = useState([]);
+    const [isUploading, setIsUploading] = useState(false);
 
     const handleFiles = (e) => {
         const list = Array.from(e.target.files || []);
@@ -13,13 +14,20 @@ const UploadPage = ({ onUpload, userId = '' }) => {
 
     const handleUpload = async () => {
 
-        if (typeof onUpload === 'function') {
-            onUpload(files);
+        if (files.length === 0) return;
+
+        setIsUploading(true);
+        try {
+            if (typeof onUpload === 'function') {
+                onUpload(files);
+            }
+            const uploadedFiles = await uploadFiles(files);
+
+            // You might want to do something with uploadedFiles here
+        } finally {
+            setIsUploading(false);
+            setFiles([]);
         }
-        const uploadedFiles = await uploadFiles(files);
-
-
-        setFiles([]);
     };
 
     // Sube los archivos a S3 y devuelve array de URLs
@@ -141,7 +149,7 @@ const UploadPage = ({ onUpload, userId = '' }) => {
             return createPreviewImage(file);
         } else if (file.name.match(/\.(mp4|mov|avi|mkv|webm|wmv)$/i)) {
             console.log('Creating video thumbnail for file mp4|mov|avi|mkv|webm|wmv:', file.name);
-            return generateVideoThumbnails(file,1);
+            return generateVideoThumbnails(file, 1);
         } else if (file.name.match(/\.pdf$/i)) {
             return createPdfThumbnail(file);
         } else {
@@ -196,145 +204,161 @@ const UploadPage = ({ onUpload, userId = '' }) => {
             };
         });
 
-// convert image to object part instead of base64 for better performance
-// https://developer.mozilla.org/en-US/docs/Web/API/URL/createObjectURL
-        const importFileandPreview = (file, revoke) => {
-            return new Promise((resolve, reject) => {
-                window.URL = window.URL || window.webkitURL;
-                let preview = window.URL.createObjectURL(file);
-                // remove reference
-                if (revoke) {
-                    window.URL.revokeObjectURL(preview);
+    // convert image to object part instead of base64 for better performance
+    // https://developer.mozilla.org/en-US/docs/Web/API/URL/createObjectURL
+    const importFileandPreview = (file, revoke) => {
+        return new Promise((resolve, reject) => {
+            window.URL = window.URL || window.webkitURL;
+            let preview = window.URL.createObjectURL(file);
+            // remove reference
+            if (revoke) {
+                window.URL.revokeObjectURL(preview);
+            }
+            setTimeout(() => {
+                resolve(preview);
+            }, 100);
+        });
+    }
+
+
+    const generateVideoThumbnails = async (videoFile, numberOfThumbnails) => {
+
+        let thumbnail = [];
+        let fractions = [];
+
+        return new Promise(async (resolve, reject) => {
+            if (!videoFile.type?.includes("video")) reject("not a valid video file");
+            await getVideoDuration(videoFile).then(async (duration) => {
+                // divide the video timing into particular timestamps in respective to number of thumbnails
+                // ex if time is 10 and numOfthumbnails is 4 then result will be -> 0, 2.5, 5, 7.5 ,10
+                // we will use this timestamp to take snapshots
+                for (let i = 0; i <= duration; i += duration / numberOfThumbnails) {
+                    fractions.push(Math.floor(i));
                 }
-                setTimeout(() => {
-                    resolve(preview);
-                }, 100);
+                // the array of promises
+                let promiseArray = fractions.map((time) => {
+                    return getVideoThumbnail(videoFile, time)
+                })
+                console.log('promiseArray', promiseArray)
+                console.log('duration', duration)
+                console.log('fractions', fractions)
+                await Promise.all(promiseArray).then((res) => {
+                    res.forEach((res) => {
+                        console.log('res', res.slice(0, 8))
+                        thumbnail.push(res);
+                    });
+                    console.log('thumbnail', thumbnail)
+                    resolve(thumbnail);
+                }).catch((err) => {
+                    console.error(err)
+                }).finally((res) => {
+                    console.log(res);
+                    resolve(thumbnail);
+                })
             });
-        }
+            reject("something went wront");
+        });
+    };
 
+    const getVideoThumbnail = (file, videoTimeInSeconds) => {
+        return new Promise((resolve, reject) => {
+            if (file.type.match("video")) {
+                importFileandPreview(file).then((urlOfFIle) => {
+                    var video = document.createElement("video");
+                    var timeupdate = function () {
+                        if (snapImage()) {
+                            video.removeEventListener("timeupdate", timeupdate);
+                            video.pause();
+                        }
+                    };
+                    video.addEventListener("loadeddata", function () {
+                        if (snapImage()) {
+                            video.removeEventListener("timeupdate", timeupdate);
+                        }
+                    });
+                    var snapImage = function (opts = {}) {
+                        const maxWidth = opts.maxWidth || 640;
+                        const maxHeight = opts.maxHeight || 480;
+                        const quality = typeof opts.quality === 'number' ? opts.quality : 0.5; // JPEG quality 0..1
 
-        const generateVideoThumbnails = async (videoFile, numberOfThumbnails) => {
-
-            let thumbnail = [];
-            let fractions = [];
-
-            return new Promise(async (resolve, reject) => {
-                if (!videoFile.type?.includes("video")) reject("not a valid video file");
-                await getVideoDuration(videoFile).then(async (duration) => {
-                    // divide the video timing into particular timestamps in respective to number of thumbnails
-                    // ex if time is 10 and numOfthumbnails is 4 then result will be -> 0, 2.5, 5, 7.5 ,10
-                    // we will use this timestamp to take snapshots
-                    for (let i = 0; i <= duration; i += duration / numberOfThumbnails) {
-                        fractions.push(Math.floor(i));
-                    }
-                    // the array of promises
-                    let promiseArray = fractions.map((time) => {
-                        return getVideoThumbnail(videoFile, time)
-                    })
-                     console.log('promiseArray', promiseArray)
-                     console.log('duration', duration)
-                     console.log('fractions', fractions)
-                    await Promise.all(promiseArray).then((res) => {
-                        res.forEach((res) => {
-                             console.log('res', res.slice(0,8))
-                            thumbnail.push(res);
-                        });
-                         console.log('thumbnail', thumbnail)
-                        resolve(thumbnail);
-                    }).catch((err) => {
-                        console.error(err)
-                    }).finally((res) => {
-                        console.log(res);
-                        resolve(thumbnail);
-                    })
+                        var canvas = document.createElement("canvas");
+                        const vw = video.videoWidth || maxWidth;
+                        const vh = video.videoHeight || maxHeight;
+                        // calculate scale to fit within maxWidth/maxHeight
+                        const scale = Math.min(1, maxWidth / vw, maxHeight / vh);
+                        canvas.width = Math.max(1, Math.floor(vw * scale));
+                        canvas.height = Math.max(1, Math.floor(vh * scale));
+                        canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+                        // compress to JPEG to save space
+                        var image = canvas.toDataURL('image/jpeg', quality);
+                        // Always resolve with the generated thumbnail (even if small)
+                        try { URL.revokeObjectURL(urlOfFIle); } catch (e) { }
+                        resolve(image);
+                        return true;
+                    };
+                    video.addEventListener("timeupdate", timeupdate);
+                    video.preload = "metadata";
+                    video.src = urlOfFIle;
+                    // Load video in Safari / IE11
+                    video.muted = true;
+                    video.playsInline = true;
+                    video.currentTime = videoTimeInSeconds;
+                    video.play();
                 });
-                reject("something went wront");
-            });
-        };
+            } else {
+                reject("file not valid");
+            }
+        });
+    };
 
-        const getVideoThumbnail = (file, videoTimeInSeconds) => {
-            return new Promise((resolve, reject) => {
-                if (file.type.match("video")) {
-                    importFileandPreview(file).then((urlOfFIle) => {
-                        var video = document.createElement("video");
-                        var timeupdate = function () {
-                            if (snapImage()) {
-                                video.removeEventListener("timeupdate", timeupdate);
-                                video.pause();
-                            }
-                        };
+    /**
+     *
+     * @param videoFile {File}
+     * @returns {number} the duration of video in seconds
+     */
+    const getVideoDuration = (videoFile) => {
+        return new Promise((resolve, reject) => {
+            if (videoFile) {
+                if (videoFile.type.match("video")) {
+                    importFileandPreview(videoFile).then((url) => {
+                        let video = document.createElement("video");
                         video.addEventListener("loadeddata", function () {
-                            if (snapImage()) {
-                                video.removeEventListener("timeupdate", timeupdate);
-                            }
+                            resolve(video.duration);
                         });
-                        var snapImage = function () {
-                            var canvas = document.createElement("canvas");
-                            canvas.width = video.videoWidth;
-                            canvas.height = video.videoHeight;
-                            canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-                            var image = canvas.toDataURL();
-                            var success = image.length > 100000;
-                            if (success) {
-                                URL.revokeObjectURL(urlOfFIle);
-                                resolve(image);
-                            }
-                            return success;
-                        };
-                        video.addEventListener("timeupdate", timeupdate);
                         video.preload = "metadata";
-                        video.src = urlOfFIle;
+                        video.src = url;
                         // Load video in Safari / IE11
                         video.muted = true;
                         video.playsInline = true;
-                        video.currentTime = videoTimeInSeconds;
                         video.play();
+                        //  window.URL.revokeObjectURL(url);
                     });
-                } else {
-                    reject("file not valid");
                 }
-            });
-        };
-
-        /**
-         *
-         * @param videoFile {File}
-         * @returns {number} the duration of video in seconds
-         */
-        const getVideoDuration = (videoFile)=> {
-            return new Promise((resolve, reject) => {
-                if (videoFile) {
-                    if (videoFile.type.match("video")) {
-                        importFileandPreview(videoFile).then((url) => {
-                            let video = document.createElement("video");
-                            video.addEventListener("loadeddata", function () {
-                                resolve(video.duration);
-                            });
-                            video.preload = "metadata";
-                            video.src = url;
-                            // Load video in Safari / IE11
-                            video.muted = true;
-                            video.playsInline = true;
-                            video.play();
-                            //  window.URL.revokeObjectURL(url);
-                        });
-                    }
-                } else {
-                    reject(0);
-                }
-            });
-        };
+            } else {
+                reject(0);
+            }
+        });
+    };
 
     return (
         <div className="upload-page card">
             <p className="muted">Selecciona uno o varios archivos para subirlos.</p>
 
             <div className="upload-input-row">
-                <input type="file" multiple onChange={handleFiles} style={{ flex: 1, border: '1px solid var(--purple-200)', borderRadius: '8px' }} />
-                <button className="btn-upload" onClick={handleUpload} disabled={files.length === 0} style={{ flex: 1 }}>
+                <input type="file" multiple onChange={handleFiles} disabled={isUploading} />
+                <button className="btn-upload" onClick={handleUpload} disabled={files.length === 0 || isUploading} style={{ flex: 1 }}>
                     Subir
                 </button>
             </div>
+
+            {isUploading && (
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} role="status" aria-live="polite">
+                    <div style={{ background: 'white', padding: 20, borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.2)', textAlign: 'center' }}>
+                        <div style={{ marginBottom: 8, fontWeight: 600 }}>Subiendo archivos...</div>
+                        <div style={{ fontSize: 13, color: '#555' }}>Por favor espera mientras se completan las subidas.</div>
+                    </div>
+                </div>
+            )}
 
             {files.length > 0 && (
                 <div className="upload-list">
