@@ -11,38 +11,62 @@ const MainScreen = ({ user, signOut }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef();
 
-  // nuevo estado para las imágenes cargadas
+  // nuevo estado para las imágenes cargadas y paginación
   const [images, setImages] = useState([]);
+  const [nextToken, setNextToken] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const didLoadRef = useRef(false);
 
-  console.log('User info:', user);
-
-  const loadImages = async (userId) => {
+  const loadImages = async (userId, token = null) => {
+    if (!userId || loading) return;
+    setLoading(true);
     try {
       const result = await list({
         path: `uploads/users/${userId}/previews/`,
+        options: { pageSize: 20, nextToken: token ? token : undefined }
       });
+      console.log('List result:', result.items.length);
       const items = result.items || [];
-      console.log('Loaded items:', items);
-
-      // esperar a que getUrl resuelva para cada item
       const itemsMapped = await Promise.all(
         items.map(async (item) => ({
           properties: (await getUrl({ path: item.path })),
           path: item.path
         }))
       );
-
-      console.log('Mapped items with URLs:', itemsMapped);
-      setImages(itemsMapped);
+      setImages((prev) => [...prev, ...itemsMapped]);
+      setNextToken(result.nextToken || null);
     } catch (error) {
       console.log(error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  // cargar imágenes al montar o cuando cambie el usuario
+  // cargar imágenes al montar o cuando cambie el usuario -> resetear y cargar primera página
   useEffect(() => {
-    loadImages(user?.userId);
+
+    if (didLoadRef.current) return;
+    didLoadRef.current = true;
+
+    setImages([]);
+    setNextToken(null);
+    setLoading(false);
+    if (user?.userId) loadImages(user.userId, null);
   }, [user]);
+
+  // cargar siguiente página al hacer scroll cerca del final
+  useEffect(() => {
+    const onScroll = () => {
+      if (loading) return;
+      if (!nextToken) return;
+      const nearBottom = (window.innerHeight + window.scrollY) >= (document.body.offsetHeight - 300);
+      if (nearBottom) {
+        loadImages(user?.userId, nextToken);
+      }
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [nextToken, loading, user]);
 
   // cerrar menú si se hace clic fuera
   useEffect(() => {
