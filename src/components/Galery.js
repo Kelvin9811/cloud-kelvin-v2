@@ -36,9 +36,7 @@ const Galery = ({ images = [], userId = '' }) => {
   const loadOriginalImage = async (item) => {
     try {
       const path = item.path.replace(`uploads/users/${userId}/previews/`, `uploads/users/${userId}/original/`);
-      console.log('loadOriginalImage for path:', path);
       const url = await getUrl({ path: path });
-      console.log('Original image URL:', url);
       return url.url;
     } catch (error) {
       console.log('Error loadOriginalImage:', error);
@@ -51,7 +49,6 @@ const Galery = ({ images = [], userId = '' }) => {
     const item = images[index];
     if (!item) return open(index); // fallback
 
-    console.log('openOriginal for index:', index, item);
     if (originalUrls[index]) {
       open(index);
       return;
@@ -161,11 +158,8 @@ const Galery = ({ images = [], userId = '' }) => {
             <button className="galery-close" onClick={close} aria-label="Cerrar">✕</button>
             {/* Renderizar según tipo: video / pdf / imagen */}
             {(() => {
-              console.log('Rendering lightbox for index:', images[openIndex].path);
               const src = getItemSource(openIndex);
-              console.log('Item source URL:', src);
               const ext = getExtensionFromUrl(images[openIndex].path);
-              console.log('Determined extension:', ext);
               if (isVideoExt(ext)) {
                 return (
                   <video
