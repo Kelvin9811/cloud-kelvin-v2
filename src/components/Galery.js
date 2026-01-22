@@ -51,7 +51,7 @@ const Galery = ({ images = [], userId = '' }) => {
     if (!gridRef.current || !imgEl || !imgEl.naturalWidth) return;
     const gridWidth = gridRef.current.clientWidth;
     let columns = 4;
-    let rowHeight = 30; // debe coincidir con grid-auto-rows en CSS
+    let rowHeight = 40; // debe coincidir con grid-auto-rows en CSS
     if (gridWidth <= 420) {
       columns = 1;
       rowHeight = 80;

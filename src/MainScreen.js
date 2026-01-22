@@ -61,8 +61,6 @@ const MainScreen = ({ user, signOut }) => {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <span className="greeting">Hola <strong>{user?.username}</strong></span>
         </div>
-        <SidebarMenu onSelect={setSelected} signOut={signOut} />
-
         {selected === 'upload' ? (
           <UploadPage userId={user?.userId} />
         ) : (

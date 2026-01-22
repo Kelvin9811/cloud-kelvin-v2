@@ -15,7 +15,6 @@
 
 .App {
   text-align: center;
-  /* nuevo fondo suave en escala púrpura */
   background: linear-gradient(135deg, var(--purple-100) 0%, var(--purple-200) 50%, var(--purple-50) 100%);
   color: var(--text-dark);
   min-height: 100vh;
@@ -43,7 +42,7 @@
   justify-content: center;
   font-size: calc(10px + 2vmin);
   color: var(--text-dark);
-  padding: 24px;
+  padding: 12px;
   box-shadow: 0 6px 24px rgba(150,120,255,0.06);
 }
 
@@ -63,8 +62,8 @@
 
 /* Nuevos estilos para el contenido principal */
 .main-content {
-  padding: 24px;
-  max-width: 1400px;
+  padding-top: 12px;
+  max-width: 1600px;
   margin: 0 auto;
   color: var(--muted);
   display: flex;
