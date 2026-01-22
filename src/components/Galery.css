@@ -26,12 +26,10 @@
 /* Grid responsivo */
 .galery-grid {
   display: grid;
-  /* forzar 4 fotos por fila en pantallas normales */
-  grid-template-columns: repeat(4, 1fr);
+  /* forzar 6 fotos por fila en pantallas normales */
+  grid-template-columns: repeat(6, 1fr);
   gap: 12px;
 
-  /* filas base pequeñas para poder "span" dinámicamente */
-  grid-auto-rows: 8px;
 
   /* mantener comportamiento de crecimiento y scroll */
   flex: 1 1 auto;
@@ -49,13 +47,13 @@
   cursor: pointer;
   overflow: hidden;
 
-  /* eliminar aspect-ratio y altura fija */
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  /* permitir que el JS controle gridRowEnd para la altura */
+  align-items: stretch;
+    grid-row-end: span 1; /* se sobreescribe por JS */
+
 }
 
-/* Imagen dentro de la celda mantiene su aspecto natural */
+/* Imagen dentro de la celda: ancho completo, altura automática */
 .galery-item img {
   width: 100%;
   height: auto;

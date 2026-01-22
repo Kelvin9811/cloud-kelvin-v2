@@ -7,7 +7,6 @@ const Galery = ({ images = [], userId = '' }) => {
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, index: null });
   const gridRef = useRef(null);
   const itemRefs = useRef([]);
-  // almacenar URLs originales ya solicitadas por índice
   const [originalUrls, setOriginalUrls] = useState({});
 
   const open = (i) => setOpenIndex(i);
@@ -47,6 +46,40 @@ const Galery = ({ images = [], userId = '' }) => {
     open(index); // abrir aunque no haya URL (usa preview)
   };
 
+  // --- NUEVO: cálculo dinámico de rows para un layout tipo "masonry" ---
+  const calculateSpanForImage = (imgEl, idx) => {
+    if (!gridRef.current || !imgEl || !imgEl.naturalWidth) return;
+    const gridWidth = gridRef.current.clientWidth;
+    let columns = 4;
+    if (gridWidth <= 420) columns = 1;
+    else if (gridWidth <= 760) columns = 2;
+    else if (gridWidth <= 1100) columns = 3;
+    const gap = 12;
+    const totalGaps = (columns - 1) * gap;
+    const columnWidth = (gridWidth - totalGaps) / columns;
+    const rowHeight = 8; // debe coincidir con grid-auto-rows en CSS
+    const span = Math.max(1, Math.ceil((imgEl.naturalHeight / imgEl.naturalWidth) * columnWidth / rowHeight));
+    const item = itemRefs.current[idx];
+    if (item) item.style.gridRowEnd = `span ${span}`;
+  };
+
+  const recalcAllSpans = () => {
+    const imgs = itemRefs.current.map((it) => it?.querySelector('img')).filter(Boolean);
+    imgs.forEach((imgEl, idx) => calculateSpanForImage(imgEl, idx));
+  };
+
+  useEffect(() => {
+    window.addEventListener('resize', recalcAllSpans);
+    return () => window.removeEventListener('resize', recalcAllSpans);
+  }, []);
+
+  useEffect(() => {
+    itemRefs.current = itemRefs.current.slice(0, images.length);
+    // recalcular tras montar imágenes
+    setTimeout(recalcAllSpans, 120);
+  }, [images]);
+  // --- FIN NUEVO ---
+
   return (
     <div className="galery-root card" onContextMenu={(e) => e.preventDefault()}>
       {images.length === 0 && (
@@ -58,17 +91,16 @@ const Galery = ({ images = [], userId = '' }) => {
           <button
             key={i}
             className="galery-item"
-            ref={(el) => (itemRefs.current[i] = el)}
+            style={{ width: 'fit-content', height: 'fit-content', display: 'block'}}
             onClick={() => openOriginal(i)}
             aria-label={img.title || `imagen-${i}`}
-            style={{ width: 100, height: 100, padding: 0, borderRadius: 6, overflow: 'hidden' }}
           >
             <img
-              src={img.properties?.url}
+              src={img.properties?.url || img.url || img.src}
               alt={img.title || `imagen-${i}`}
               loading="lazy"
-              // tamaño fijo 100x100, cubrir
-              style={{ width: 100, height: 100, objectFit: 'cover', display: 'block' }}
+              // al cargar la imagen calculamos el span para el grid (dinámico)
+              onLoad={(e) => calculateSpanForImage(e.target, i)}
             />
           </button>
         ))}
