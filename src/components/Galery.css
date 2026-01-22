@@ -30,6 +30,14 @@
   grid-auto-rows: 10px;
   gap: 12px;
 }
+
+@media (max-width: 480px) {
+  .gallery {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+}
+
 /* Item botón que contiene la imagen */
 .galery-item {
   background: linear-gradient(180deg, rgba(255,255,255,0.6), rgba(255,255,255,0.85));

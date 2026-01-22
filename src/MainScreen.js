@@ -66,7 +66,7 @@ const MainScreen = ({ user, signOut }) => {
         {selected === 'upload' ? (
           <UploadPage userId={user?.userId} />
         ) : (
-          <Galery images={images} userId={user?.userId}/>
+          <Galery images={images} userId={user?.userId} />
         )}
       </div>
 
@@ -82,6 +82,9 @@ const MainScreen = ({ user, signOut }) => {
             </button>
             <button className="fab-menu-item" role="menuitem" onClick={() => { setSelected('upload'); setMenuOpen(false); }}>
               <span aria-hidden="true" style={{ marginRight: 8 }}>➕</span>Agregar archivos
+            </button>
+            <button className="fab-menu-item" role="menuitem" onClick={() => { if (typeof signOut === 'function') signOut(); setMenuOpen(false); }}>
+              <span aria-hidden="true" style={{ marginRight: 8 }}>🚪</span>Cerrar sesión
             </button>
           </ul>
         )}

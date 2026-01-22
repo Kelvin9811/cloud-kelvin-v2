@@ -51,13 +51,22 @@ const Galery = ({ images = [], userId = '' }) => {
     if (!gridRef.current || !imgEl || !imgEl.naturalWidth) return;
     const gridWidth = gridRef.current.clientWidth;
     let columns = 4;
-    if (gridWidth <= 420) columns = 1;
-    else if (gridWidth <= 760) columns = 2;
-    else if (gridWidth <= 1100) columns = 3;
+    let rowHeight = 30; // debe coincidir con grid-auto-rows en CSS
+    if (gridWidth <= 420) {
+      columns = 1;
+      rowHeight = 30;
+    }
+    else if (gridWidth <= 760) {
+      columns = 2;
+      rowHeight = 150;
+    }
+    else if (gridWidth <= 1100) {
+      columns = 3;
+      rowHeight = 150;
+    }
     const gap = 12;
     const totalGaps = (columns - 1) * gap;
     const columnWidth = (gridWidth - totalGaps) / columns;
-    const rowHeight = 30; // debe coincidir con grid-auto-rows en CSS
     const span = Math.max(1, Math.ceil((imgEl.naturalHeight / imgEl.naturalWidth) * columnWidth / rowHeight));
     const item = itemRefs.current[idx];
     if (item) item.style.gridRowEnd = `span ${span}`;
