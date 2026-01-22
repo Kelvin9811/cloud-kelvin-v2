@@ -43,6 +43,16 @@ const MainScreen = ({ user, signOut }) => {
     }
   };
 
+  // Resetea el estado de la galería y fuerza una recarga desde la primera página
+  const resetAndLoadImages = (userId) => {
+    setImages([]);
+    setNextToken(null);
+    setLoading(false);
+    // allow loadImages to run again
+    didLoadRef.current = false;
+    if (userId) loadImages(userId, null);
+  };
+
   // cargar imágenes al montar o cuando cambie el usuario -> resetear y cargar primera página
   useEffect(() => {
 
@@ -100,7 +110,7 @@ const MainScreen = ({ user, signOut }) => {
         </button>
         {menuOpen && (
           <ul className="fab-menu open" role="menu">
-            <button className="fab-menu-item" role="menuitem" onClick={() => { setSelected(null); setMenuOpen(false); }}>
+            <button className="fab-menu-item" role="menuitem" onClick={() => { setSelected(null); setMenuOpen(false); resetAndLoadImages(user?.userId); }}>
               <span aria-hidden="true" style={{ marginRight: 8 }}>🏠</span>Inicio
             </button>
             <button className="fab-menu-item" role="menuitem" onClick={() => { setSelected('upload'); setMenuOpen(false); }}>
