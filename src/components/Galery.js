@@ -20,6 +20,7 @@ const Galery = ({ images = [], userId = '' }) => {
   const loadOriginalImage = async (item) => {
     try {
       const path = item.path.replace(`uploads/users/${userId}/previews/`, `uploads/users/${userId}/original/`);
+      console.log('loadOriginalImage for path:', path);
       const url = await getUrl({ path: path });
       return url.url;
     } catch (error) {
@@ -33,7 +34,7 @@ const Galery = ({ images = [], userId = '' }) => {
     const item = images[index];
     if (!item) return open(index); // fallback
 
-    // si ya la obtuvimos antes, abrir directamente
+    console.log('openOriginal for index:', index, item);
     if (originalUrls[index]) {
       open(index);
       return;
