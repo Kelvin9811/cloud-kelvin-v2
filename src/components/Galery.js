@@ -22,7 +22,6 @@ const Galery = ({ images = [], userId = '' }) => {
     const clean = url.split('?')[0].split('#')[0];
     const parts = clean.split('.');
     if (parts.length === 1) return '';
-    console.log('getExtensionFromUrl:', url, '->', parts.pop().toLowerCase());
     return parts.pop().toLowerCase();
   };
 
