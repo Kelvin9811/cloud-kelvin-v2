@@ -6,10 +6,18 @@ import PdfLogo from '../images/pdf_logo.png';
 const UploadPage = ({ onUpload, userId = '' }) => {
     const [files, setFiles] = useState([]);
     const [isUploading, setIsUploading] = useState(false);
+    const [uploadStatuses, setUploadStatuses] = useState({}); // index -> 'idle' | 'uploading' | 'done' | 'error'
 
     const handleFiles = (e) => {
         const list = Array.from(e.target.files || []);
         setFiles(list);
+    };
+
+    // Trunca el nombre para mostrar en UI a un máximo de n caracteres (con ...)
+    const truncateName = (name, max = 40) => {
+        if (!name) return '';
+        if (name.length <= max) return name;
+        return name.slice(0, max - 3) + '...';
     };
 
     const handleUpload = async () => {
@@ -26,7 +34,8 @@ const UploadPage = ({ onUpload, userId = '' }) => {
             // You might want to do something with uploadedFiles here
         } finally {
             setIsUploading(false);
-            setFiles([]);
+            // NOTE: do not clear selected files here — keep them visible until the user leaves the screen
+            // setFiles([]);
         }
     };
 
@@ -36,7 +45,10 @@ const UploadPage = ({ onUpload, userId = '' }) => {
         if (!files || files.length === 0) return [];
 
         const uploads = await Promise.all(
-            Array.from(files).map(async (file) => {
+            Array.from(files).map(async (file, idx) => {
+
+                // mark this file as uploading
+                setUploadStatuses((s) => ({ ...s, [idx]: 'uploading' }));
 
                 const uuid = crypto.randomUUID();
                 const cleanName = file.name.replace(/\s+/g, '_');
@@ -116,8 +128,11 @@ const UploadPage = ({ onUpload, userId = '' }) => {
                     console.log('File uploaded successfully:', file.name);
 
 
+                    // mark as done on success
+                    setUploadStatuses((s) => ({ ...s, [idx]: 'done' }));
                 } catch (error) {
                     console.error('Error uploading file:', error);
+                    setUploadStatuses((s) => ({ ...s, [idx]: 'error' }));
                 }
 
                 const [{ url: previewUrl }, { url: finalUrl }] = await Promise.all([
@@ -345,29 +360,36 @@ const UploadPage = ({ onUpload, userId = '' }) => {
             <p className="muted">Selecciona uno o varios archivos para subirlos.</p>
 
             <div className="upload-input-row">
-                <input type="file" multiple onChange={handleFiles} disabled={isUploading} />
-                <button className="btn-upload" onClick={handleUpload} disabled={files.length === 0 || isUploading} style={{ flex: 1 }}>
-                    Subir
-                </button>
-            </div>
+                <input type="file" multiple onChange={handleFiles} />
 
-            {isUploading && (
-                <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} role="status" aria-live="polite">
-                    <div style={{ background: 'white', padding: 20, borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.2)', textAlign: 'center' }}>
-                        <div style={{ marginBottom: 8, fontWeight: 600 }}>Subiendo archivos...</div>
-                        <div style={{ fontSize: 13, color: '#555' }}>Por favor espera mientras se completan las subidas.</div>
-                    </div>
-                </div>
-            )}
+            </div>
 
             {files.length > 0 && (
                 <div className="upload-list">
                     <h4>Archivos seleccionados:</h4>
-                    <ul>
-                        {files.map((f, i) => <li key={i}>{f.name} ({Math.round(f.size / 1024)} KB)</li>)}
+                    <ul style={{ listStyleType: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {files.map((f, i) => {
+                            const status = uploadStatuses[i] || 'idle';
+                            let icon = '';
+                            if (status === 'uploading') icon = '⏳';
+                            else if (status === 'done') icon = '✅';
+                            else if (status === 'error') icon = '❌';
+                            const display = truncateName(f.name, 20);
+                            return (
+                                <li key={i} style={{ alignContent: 'center', gap: 8, width: '100%' }} title={f.name}>
+                                    <span style={{ width: 'auto' }}>{display} ({Math.round(f.size / 1024)} KB)</span>
+                                    <span style={{ width: 20 }}>{icon}</span>
+                                </li>
+                            );
+                        })}
                     </ul>
                 </div>
             )}
+            <div className="upload-actions" style={{ margin: 16 , width: '100%'}}>
+                <button className="btn-upload" onClick={handleUpload} disabled={files.length === 0 || isUploading} style={{ width: '200px' }}>
+                    Subir
+                </button>
+            </div>
         </div>
     );
 };
