@@ -53,6 +53,11 @@ const MainScreen = ({ user, signOut }) => {
     if (userId) loadImages(userId, null);
   };
 
+  // Handler para eliminar un item localmente sin recargar toda la galería
+  const handleDeleteLocal = (index, item) => {
+    setImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
   // cargar imágenes al montar o cuando cambie el usuario -> resetear y cargar primera página
   useEffect(() => {
 
@@ -99,7 +104,7 @@ const MainScreen = ({ user, signOut }) => {
         {selected === 'upload' ? (
           <UploadPage userId={user?.userId} />
         ) : (
-          <Galery images={images} userId={user?.userId} />
+          <Galery images={images} userId={user?.userId} onDelete={handleDeleteLocal} />
         )}
       </div>
 

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './Galery.css';
-import { uploadData, getUrl } from '@aws-amplify/storage';
+import { uploadData, getUrl, remove } from '@aws-amplify/storage';
 
-const Galery = ({ images = [], userId = '' }) => {
+const Galery = ({ images = [], userId = '', onDelete }) => {
   const [openIndex, setOpenIndex] = useState(null);
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, index: null });
   const gridRef = useRef(null);
@@ -59,6 +59,43 @@ const Galery = ({ images = [], userId = '' }) => {
       setOriginalUrls((prev) => ({ ...prev, [index]: url }));
     }
     open(index); // abrir aunque no haya URL (usa preview)
+  };
+
+  // Eliminar item (preview + original). Llama onDelete si se proporciona.
+  const handleDelete = async (index) => {
+    const item = images[index];
+    if (!item) return;
+    const confirm = window.confirm('¿Eliminar este archivo? Esta acción no se puede deshacer.');
+    if (!confirm) return;
+
+    const previewPath = item.path;
+    const originalPath = previewPath.replace(`uploads/users/${userId}/previews/`, `uploads/users/${userId}/original/`);
+
+    try {
+      // intentar eliminar ambos (si existen)
+      console.log('Deleting preview:', previewPath);
+      console.log('Deleting original:', originalPath);
+      try { await remove({ path: previewPath }); } catch (e) { console.warn('Error removing preview', e); }
+      try { await remove({ path: originalPath }); } catch (e) { console.warn('Error removing original', e); }
+      // limpiar caches locales
+      setOriginalUrls((prev) => {
+        const copy = { ...prev };
+        delete copy[index];
+        return copy;
+      });
+      // cerrar lightbox
+      close();
+
+      // llamar callback del padre si existe
+      try {
+        if (typeof onDelete === 'function') onDelete(index, item);
+      } catch (e) {
+        console.warn('onDelete callback failed', e);
+      }
+    } catch (error) {
+      console.error('Error deleting item:', error);
+      alert('Error al eliminar el archivo. Revisa la consola.');
+    }
   };
 
   // --- NUEVO: cálculo dinámico de rows para un layout tipo "masonry" ---
@@ -155,7 +192,10 @@ const Galery = ({ images = [], userId = '' }) => {
       {openIndex !== null && (
         <div className="galery-lightbox" onClick={close} role="dialog" aria-modal="true">
           <div className="galery-lightbox-content" onClick={(e) => e.stopPropagation()}>
-            <button className="galery-close" onClick={close} aria-label="Cerrar">✕</button>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'space-between' , border: '1px solid #ccc', borderRadius: 4, padding: 4 }}>
+              <button className="galery-close" onClick={close} aria-label="Cerrar">✕</button>
+              <button className="galery-delete" onClick={() => handleDelete(openIndex)} aria-label="Eliminar" title="Eliminar">🗑</button>
+            </div>
             {/* Renderizar según tipo: video / pdf / imagen */}
             {(() => {
               const src = getItemSource(openIndex);
