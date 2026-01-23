@@ -5,6 +5,7 @@ import UploadPage from './components/UploadPage'; // nuevo componente
 import './App.css';
 import './components/UploadPage.css'; // estilos para FAB y UploadPage
 import carpetaLogo from './images/carpeta_logo.jpg';
+import backButtonImage from './images/back-button.png';
 import { uploadData, getUrl, list } from '@aws-amplify/storage';
 const FOLDER_PREFIX = 'CODIGOUNICODECARPETASKOR';
 
@@ -24,6 +25,24 @@ const MainScreen = ({ user, signOut }) => {
   const [addFolderModalOpen, setAddFolderModalOpen] = useState(false);
   const [folderInput, setFolderInput] = useState('');
   const [folderError, setFolderError] = useState(null);
+  // tamaño dinámico del botón de volver (ancho = alto)
+  const [backBtnSize, setBackBtnSize] = useState(40);
+
+  useEffect(() => {
+    const computeSize = () => {
+      try {
+        const minSide = Math.min(window.innerWidth || 800, window.innerHeight || 600);
+        // 5% del menor lado, con límites entre 32 y 72 px
+        const size = Math.max(32, Math.min(72, Math.round(minSide * 0.05)));
+        setBackBtnSize(size);
+      } catch (e) {
+        setBackBtnSize(40);
+      }
+    };
+    computeSize();
+    window.addEventListener('resize', computeSize, { passive: true });
+    return () => window.removeEventListener('resize', computeSize);
+  }, []);
 
   const handleAddFolder = () => {
     // abrir modal para ingresar nombre de carpeta
@@ -191,7 +210,34 @@ const MainScreen = ({ user, signOut }) => {
 
   return (
     <div className="App">
-      <div className="main-content">
+      <div className="main-content" style={{ position: 'relative' }}>
+        {/* Botón de volver a raíz (solo cuando estamos dentro de una carpeta) */}
+        {currentFolder && (
+          <button
+            onClick={() => { setSelected(null); resetAndLoadImagesHome(user?.userId); }}
+            aria-label="Volver a la raíz"
+            title="Volver"
+            style={{
+              position: 'absolute',
+              top: 12,
+              left: 12,
+              zIndex: 1100,
+              background: 'rgba(255,255,255,0.9)',
+              color: '#000',
+              border: 'none',
+              borderRadius: Math.max(6, Math.round(backBtnSize * 0.18)),
+              cursor: 'pointer',
+              height: backBtnSize,
+              width: backBtnSize,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+            }}
+          >
+            <img src={backButtonImage} alt="Volver" style={{ height: Math.round(backBtnSize * 0.55), width: Math.round(backBtnSize * 0.55) }} />
+          </button>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <span className="greeting">Hola <strong>{user?.username}</strong>{currentFolder ? ` Carpeta ${currentFolder}` : ''}</span>
         </div>

@@ -39,6 +39,14 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
         }
     };
 
+    const handleClearAll = () => {
+        // Reiniciar todo el estado relacionado con la carga para empezar de nuevo
+        console.log('Clearing selected files and upload statuses');
+        setFiles([]);
+        setUploadStatuses({});
+        setIsUploading(false);
+    };
+
     // Formatea la fecha del archivo para usar en el nombre: YYYYMMDD_HHMMSS
     const formatFileDate = (ts) => {
         const d = new Date(ts || Date.now());
@@ -403,9 +411,14 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                 </div>
             )}
             <div className="upload-actions" style={{ margin: 16 , width: '100%'}}>
-                <button className="btn-upload" onClick={handleUpload} disabled={files.length === 0 || isUploading} style={{ width: '200px' }}>
-                    Subir
-                </button>
+                <div style={{ display: 'flex', gap: 12 }}>
+                    <button className="btn-upload" onClick={handleUpload} disabled={files.length === 0 || isUploading} style={{ width: 200 }}>
+                        Subir
+                    </button>
+                    <button className="btn-clear" onClick={handleClearAll} disabled={files.length === 0 || isUploading} style={{ width: 120 }} title="Limpiar archivos seleccionados">
+                        Limpiar
+                    </button>
+                </div>
             </div>
         </div>
     );
