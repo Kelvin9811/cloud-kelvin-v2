@@ -108,7 +108,18 @@ const MainScreen = ({ user, signOut }) => {
       );
       console.log('List result:', itemsMapped);
 
-      setImages((prev) => [...prev, ...itemsMapped]);
+      // Merge with previous images and ensure folder placeholders appear first
+      setImages((prev) => {
+        const combined = [...prev, ...itemsMapped];
+        const filename = (p) => (p && p.path) ? p.path.split('/').pop() : '';
+        combined.sort((a, b) => {
+          const aIsFolder = filename(a).startsWith(FOLDER_PREFIX);
+          const bIsFolder = filename(b).startsWith(FOLDER_PREFIX);
+          if (aIsFolder === bIsFolder) return 0; // preserve relative order
+          return aIsFolder ? -1 : 1; // folders first
+        });
+        return combined;
+      });
       setNextToken(result.nextToken || null);
     } catch (error) {
       console.log(error);
