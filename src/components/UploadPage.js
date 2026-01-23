@@ -39,6 +39,13 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
         }
     };
 
+    // Formatea la fecha del archivo para usar en el nombre: YYYYMMDD_HHMMSS
+    const formatFileDate = (ts) => {
+        const d = new Date(ts || Date.now());
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    };
+
     // Sube los archivos a S3 y devuelve array de URLs
     const uploadFiles = async (files) => {
 
@@ -52,12 +59,18 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
 
                 const uuid = crypto.randomUUID();
                 const cleanName = file.name.replace(/\s+/g, '_');
+                const fileDateToken = formatFileDate(file.lastModified || Date.now());
 
                 // Rutas (si currentFolder está definido, subir dentro de esa carpeta)
                 const basePath = currentFolder ? `uploads/users/${userId}/${currentFolder}` : `uploads/users/${userId}`;
-                const previewPath = `${basePath}/previews/${uuid}_${cleanName}`;
-                const finalPath = `${basePath}/original/${uuid}_${cleanName}`;
+                // Anteponer la fecha del archivo antes del uuid
+                const previewPath = `${basePath}/previews/${fileDateToken}_${uuid}_${cleanName}`;
+                const finalPath = `${basePath}/original/${fileDateToken}_${uuid}_${cleanName}`;
 
+                // Logs para depuración: ruta final y nombre generado
+                console.log(`Prepared upload for file="${file.name}" finalName="${fileDateToken}_${uuid}_${cleanName}"`);
+                console.log('Upload paths -> preview:', previewPath, ' final:', finalPath);
+                
                 let previewBlob = await createPreview(file);
                 console.log('Preview raw for file', file.name, ':', previewBlob);
 
@@ -104,7 +117,8 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                             metadata: {
                                 originalName: file.name,
                                 isPreview: 'true',
-                                extension: file.type
+                                extension: file.type,
+                                creationDate: new Date(file.lastModified || Date.now()).toISOString()
                             }
                         }).result;
                     } else {
@@ -112,6 +126,7 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                     }
 
                     console.log('Uploading final file to path:', finalPath);
+                    console.log('Final metadata creationDate:', new Date(file.lastModified || Date.now()).toISOString());
 
                     await uploadData({
                         path: finalPath,
@@ -122,7 +137,8 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                         metadata: {
                             originalName: file.name,
                             isPreview: 'false',
-                            extension: file.type
+                            extension: file.type,
+                            creationDate: new Date(file.lastModified || Date.now()).toISOString()
                         }
                     }).result;
 
