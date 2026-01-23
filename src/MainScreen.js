@@ -74,8 +74,11 @@ const MainScreen = ({ user, signOut }) => {
   // Construye el path base para listar previews según la carpeta actual
   const getPreviewListPath = (userId, folderOverride = null) => {
     if (!userId) return '';
+    console.log('Getting preview list path for user:', userId, 'folderOverride:', folderOverride);
     const folder = folderOverride !== null ? folderOverride : currentFolder;
+    console.log('Using folder:', folder);
     if (folder) return `uploads/users/${userId}/${folder}/previews/`;
+    console.log('No folder, using root previews path');
     return `uploads/users/${userId}/previews/`;
   };
 
@@ -91,6 +94,7 @@ const MainScreen = ({ user, signOut }) => {
     if (!userId || loading) return;
     setLoading(true);
     try {
+      console.log('Loading images for user:', userId, 'token:', token, 'folderOverride:', folderOverride);
       const result = await list({
         path: getPreviewListPath(userId, folderOverride),
         options: { pageSize: 20, nextToken: token ? token : undefined }
@@ -122,6 +126,15 @@ const MainScreen = ({ user, signOut }) => {
     didLoadRef.current = false;
     if (userId) loadImages(userId, null, folderOverride);
   };
+
+    // Resetea el estado de la galería y fuerza una recarga desde la primera página
+  const resetAndLoadImagesHome = (userId) => {
+    // Reinicia el contexto de carpeta y recarga la galería raíz (sin subcarpetas)
+    setCurrentFolder(null);
+    // Reutilizamos resetAndLoadImages para limpiar estados y lanzar la carga de la raíz
+    resetAndLoadImages(userId, '');
+  };
+
 
   // Handler para eliminar un item localmente sin recargar toda la galería
   const handleDeleteLocal = (index, item) => {
@@ -208,7 +221,7 @@ const MainScreen = ({ user, signOut }) => {
         </button>
         {menuOpen && (
           <ul className="fab-menu open" role="menu">
-            <button className="fab-menu-item" role="menuitem" onClick={() => { setSelected(null); setMenuOpen(false); resetAndLoadImages(user?.userId); }}>
+            <button className="fab-menu-item" role="menuitem" onClick={() => { setSelected(null); setMenuOpen(false); resetAndLoadImagesHome(user?.userId); }}>
               <span aria-hidden="true" style={{ marginRight: 8 }}>🏠</span>Inicio
             </button>
             <button className="fab-menu-item" role="menuitem" onClick={() => { setSelected('upload'); setMenuOpen(false); }}>
