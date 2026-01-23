@@ -61,32 +61,43 @@ const Galery = ({ images = [], userId = '', onDelete }) => {
     open(index); // abrir aunque no haya URL (usa preview)
   };
 
-  // Eliminar item (preview + original). Llama onDelete si se proporciona.
-  const handleDelete = async (index) => {
+  // Modal-driven deletion: show confirmation modal and then delete only that file while showing busy state
+  const [deleteModal, setDeleteModal] = useState({ open: false, index: null, busy: false, error: null });
+
+  const requestDelete = (index) => {
+    setDeleteModal({ open: true, index, busy: false, error: null });
+  };
+
+  const cancelDelete = () => {
+    setDeleteModal({ open: false, index: null, busy: false, error: null });
+  };
+
+  const confirmDelete = async () => {
+    const { index } = deleteModal;
+    if (index === null || index === undefined) return;
     const item = images[index];
-    if (!item) return;
-    const confirm = window.confirm('¿Eliminar este archivo? Esta acción no se puede deshacer.');
-    if (!confirm) return;
+    if (!item) return cancelDelete();
 
     const previewPath = item.path;
     const originalPath = previewPath.replace(`uploads/users/${userId}/previews/`, `uploads/users/${userId}/original/`);
 
+    setDeleteModal((s) => ({ ...s, busy: true, error: null }));
     try {
-      // intentar eliminar ambos (si existen)
-      console.log('Deleting preview:', previewPath);
-      console.log('Deleting original:', originalPath);
       try { await remove({ path: previewPath }); } catch (e) { console.warn('Error removing preview', e); }
       try { await remove({ path: originalPath }); } catch (e) { console.warn('Error removing original', e); }
+
       // limpiar caches locales
       setOriginalUrls((prev) => {
         const copy = { ...prev };
         delete copy[index];
         return copy;
       });
-      // cerrar lightbox
+
+      // cerrar modal y lightbox
+      setDeleteModal({ open: false, index: null, busy: false, error: null });
       close();
 
-      // llamar callback del padre si existe
+      // notificar al padre para que elimine el item localmente
       try {
         if (typeof onDelete === 'function') onDelete(index, item);
       } catch (e) {
@@ -94,7 +105,7 @@ const Galery = ({ images = [], userId = '', onDelete }) => {
       }
     } catch (error) {
       console.error('Error deleting item:', error);
-      alert('Error al eliminar el archivo. Revisa la consola.');
+      setDeleteModal({ open: true, index, busy: false, error: 'Error al eliminar el archivo' });
     }
   };
 
@@ -194,7 +205,7 @@ const Galery = ({ images = [], userId = '', onDelete }) => {
           <div className="galery-lightbox-content" onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'space-between' , border: '1px solid #ccc', borderRadius: 4, padding: 4 }}>
               <button className="galery-close" onClick={close} aria-label="Cerrar">✕</button>
-              <button className="galery-delete" onClick={() => handleDelete(openIndex)} aria-label="Eliminar" title="Eliminar">🗑</button>
+              <button className="galery-delete" onClick={() => requestDelete(openIndex)} aria-label="Eliminar" title="Eliminar">🗑</button>
             </div>
             {/* Renderizar según tipo: video / pdf / imagen */}
             {(() => {
@@ -232,6 +243,27 @@ const Galery = ({ images = [], userId = '', onDelete }) => {
             })()}
 
             {images[openIndex]?.title && <div className="galery-caption">{images[openIndex].title}</div>}
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation modal (front of screen) */}
+      {deleteModal.open && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000 }} role="dialog" aria-modal="true">
+          <div style={{ background: 'white', padding: 20, borderRadius: 8, width: '90%', maxWidth: 420, boxShadow: '0 6px 24px rgba(0,0,0,0.3)' }}>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Confirmar eliminación</div>            
+            {deleteModal.error && <div style={{ color: 'red', marginBottom: 8 }}>{deleteModal.error}</div>}
+            {deleteModal.busy ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 20 }}>⏳</span>
+                <div>Eliminando archivo...</div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 12, gap: 24 }}>
+                <button onClick={cancelDelete} style={{ padding: '8px 12px' }}>Cancelar</button>
+                <button onClick={confirmDelete} style={{ padding: '8px 12px', background: '#e53935', color: 'white', border: 'none', borderRadius: 4 }}>Eliminar</button>
+              </div>
+            )}
           </div>
         </div>
       )}
