@@ -4,6 +4,7 @@ import Galery from './components/Galery'; // agregado
 import UploadPage from './components/UploadPage'; // nuevo componente
 import './App.css';
 import './components/UploadPage.css'; // estilos para FAB y UploadPage
+import carpetaLogo from './images/carpeta_logo.jpg';
 import { uploadData, getUrl, list } from '@aws-amplify/storage';
 
 const MainScreen = ({ user, signOut }) => {
@@ -16,6 +17,56 @@ const MainScreen = ({ user, signOut }) => {
   const [nextToken, setNextToken] = useState(null);
   const [loading, setLoading] = useState(false);
   const didLoadRef = useRef(false);
+  // carpeta actual (vacía por defecto). Se mostrará en el saludo cuando esté definida.
+  const [currentFolder, setCurrentFolder] = useState(null);
+  // Estados y métodos relacionados con carpetas
+  const [addFolderModalOpen, setAddFolderModalOpen] = useState(false);
+  const [folderInput, setFolderInput] = useState('');
+  const [folderError, setFolderError] = useState(null);
+
+  const handleAddFolder = () => {
+    // abrir modal para ingresar nombre de carpeta
+    setFolderInput('');
+    setFolderError(null);
+    setAddFolderModalOpen(true);
+  };
+
+  const closeAddFolderModal = () => {
+    setAddFolderModalOpen(false);
+    setFolderInput('');
+    setFolderError(null);
+  };
+
+  const createFolder = async (folderName) => {
+    const name = (folderName || '').trim();
+    if (!name) {
+      setFolderError('El nombre de la carpeta no puede estar vacío');
+      return;
+    }
+    const cleanName = 'CODIGOUNICODECARPETASKOR'.concat(folderName).replace(/\s+/g, '_');
+    const userId = user?.userId;
+    const previewPath = `uploads/users/${userId}/previews/${cleanName}`;
+
+    const response = await fetch(carpetaLogo);
+    const blob = await response.blob();
+
+    await uploadData({
+      path: previewPath,
+      data: blob,
+      options: {
+        contentType: 'image/jpeg',
+      }
+    }).result;
+
+    try {
+      setCurrentFolder(name);
+      closeAddFolderModal();
+      resetAndLoadImages(user?.userId);
+    } catch (err) {
+      console.error('Error creando carpeta (placeholder):', err);
+      setFolderError('No se pudo crear la carpeta');
+    }
+  };
 
   const loadImages = async (userId, token = null) => {
     if (!userId || loading) return;
@@ -99,7 +150,7 @@ const MainScreen = ({ user, signOut }) => {
     <div className="App">
       <div className="main-content">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span className="greeting">Hola <strong>{user?.username}</strong></span>
+          <span className="greeting">Hola <strong>{user?.username}</strong>{currentFolder ? ` Carpeta ${currentFolder}` : ''}</span>
         </div>
         {selected === 'upload' ? (
           <UploadPage userId={user?.userId} />
@@ -107,6 +158,29 @@ const MainScreen = ({ user, signOut }) => {
           <Galery images={images} userId={user?.userId} onDelete={handleDeleteLocal} />
         )}
       </div>
+
+      {/* Modal para agregar carpeta */}
+      {addFolderModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div style={{ background: '#fff', padding: 20, borderRadius: 8, width: 760, maxWidth: '90%', boxShadow: '0 6px 20px rgba(0,0,0,0.2)' }} role="dialog" aria-modal="true">
+            <h3 style={{ marginTop: 0 }}>Agregar carpeta</h3>
+            <p style={{ marginTop: 0, marginBottom: 18 }}>Ingresa el nombre de la nueva carpeta:</p>
+            <input
+              autoFocus
+              value={folderInput}
+              onChange={(e) => { setFolderInput(e.target.value); setFolderError(null); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') createFolder(folderInput); }}
+              placeholder="Nombre de la carpeta"
+              style={{ width: '100%', padding: '8px 10px', marginBottom: 8, boxSizing: 'border-box', borderRadius: 8 }}
+            />
+            {folderError && <div style={{ color: 'red', marginBottom: 8 }}>{folderError}</div>}
+            <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 12, gap: 24 }}>
+              <button onClick={closeAddFolderModal} style={{ padding: '8px 12px', borderRadius: 8 }}>Cancelar</button>
+              <button onClick={() => createFolder(folderInput)} style={{ padding: '8px 12px', borderRadius: 8 }}>Crear</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* FAB y menú desplegable */}
       <div className="fab-container" ref={menuRef}>
@@ -120,6 +194,9 @@ const MainScreen = ({ user, signOut }) => {
             </button>
             <button className="fab-menu-item" role="menuitem" onClick={() => { setSelected('upload'); setMenuOpen(false); }}>
               <span aria-hidden="true" style={{ marginRight: 8 }}>➕</span>Agregar archivos
+            </button>
+            <button className="fab-menu-item" role="menuitem" onClick={() => { handleAddFolder(); setMenuOpen(false); }}>
+              <span aria-hidden="true" style={{ marginRight: 8 }}>📁</span>Agregar carpeta
             </button>
             <button className="fab-menu-item" role="menuitem" onClick={() => { if (typeof signOut === 'function') signOut(); setMenuOpen(false); }}>
               <span aria-hidden="true" style={{ marginRight: 8 }}>🚪</span>Cerrar sesión
