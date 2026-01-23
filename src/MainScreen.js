@@ -6,6 +6,7 @@ import './App.css';
 import './components/UploadPage.css'; // estilos para FAB y UploadPage
 import carpetaLogo from './images/carpeta_logo.jpg';
 import { uploadData, getUrl, list } from '@aws-amplify/storage';
+const FOLDER_PREFIX = 'CODIGOUNICODECARPETASKOR';
 
 const MainScreen = ({ user, signOut }) => {
   const [selected, setSelected] = useState(null);
@@ -43,9 +44,11 @@ const MainScreen = ({ user, signOut }) => {
       setFolderError('El nombre de la carpeta no puede estar vacío');
       return;
     }
-    const cleanName = 'CODIGOUNICODECARPETASKOR'.concat(folderName).replace(/\s+/g, '_');
+    const cleanName = FOLDER_PREFIX.concat(name).replace(/\s+/g, '_');
     const userId = user?.userId;
-    const previewPath = `uploads/users/${userId}/previews/${cleanName}`;
+  // crear un placeholder en el listado general de previews (visibile en la galería raiz)
+  // el nombre contiene el prefijo especial para identificarlo como 'botón de carpeta'
+  const previewPath = `uploads/users/${userId}/previews/${cleanName}`;
 
     const response = await fetch(carpetaLogo);
     const blob = await response.blob();
@@ -59,21 +62,37 @@ const MainScreen = ({ user, signOut }) => {
     }).result;
 
     try {
-      setCurrentFolder(name);
-      closeAddFolderModal();
-      resetAndLoadImages(user?.userId);
+  setCurrentFolder(name);
+  closeAddFolderModal();
+  // recargar la galería ahora que cambiamos la carpeta activa
+  resetAndLoadImages(user?.userId);
     } catch (err) {
       console.error('Error creando carpeta (placeholder):', err);
       setFolderError('No se pudo crear la carpeta');
     }
   };
+  // Construye el path base para listar previews según la carpeta actual
+  const getPreviewListPath = (userId, folderOverride = null) => {
+    if (!userId) return '';
+    const folder = folderOverride !== null ? folderOverride : currentFolder;
+    if (folder) return `uploads/users/${userId}/${folder}/previews/`;
+    return `uploads/users/${userId}/previews/`;
+  };
 
-  const loadImages = async (userId, token = null) => {
+  const handleSetFolderFromButton = (folderName) => {
+    const name = (folderName || '').trim();
+    if (!name) return;
+    setCurrentFolder(name);
+    // recargar la galería usando la nueva carpeta (pasamos override para evitar condiciones de carrera)
+    resetAndLoadImages(user?.userId, name);
+  };
+
+  const loadImages = async (userId, token = null, folderOverride = null) => {
     if (!userId || loading) return;
     setLoading(true);
     try {
       const result = await list({
-        path: `uploads/users/${userId}/previews/`,
+        path: getPreviewListPath(userId, folderOverride),
         options: { pageSize: 20, nextToken: token ? token : undefined }
       });
       const items = result.items || [];
@@ -95,13 +114,13 @@ const MainScreen = ({ user, signOut }) => {
   };
 
   // Resetea el estado de la galería y fuerza una recarga desde la primera página
-  const resetAndLoadImages = (userId) => {
+  const resetAndLoadImages = (userId, folderOverride = null) => {
     setImages([]);
     setNextToken(null);
     setLoading(false);
     // allow loadImages to run again
     didLoadRef.current = false;
-    if (userId) loadImages(userId, null);
+    if (userId) loadImages(userId, null, folderOverride);
   };
 
   // Handler para eliminar un item localmente sin recargar toda la galería
@@ -153,9 +172,9 @@ const MainScreen = ({ user, signOut }) => {
           <span className="greeting">Hola <strong>{user?.username}</strong>{currentFolder ? ` Carpeta ${currentFolder}` : ''}</span>
         </div>
         {selected === 'upload' ? (
-          <UploadPage userId={user?.userId} />
+          <UploadPage userId={user?.userId} currentFolder={currentFolder} />
         ) : (
-          <Galery images={images} userId={user?.userId} onDelete={handleDeleteLocal} />
+          <Galery images={images} userId={user?.userId} onDelete={handleDeleteLocal} onSelectFolder={handleSetFolderFromButton} />
         )}
       </div>
 

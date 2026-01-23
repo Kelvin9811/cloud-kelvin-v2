@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import './Galery.css';
 import { uploadData, getUrl, remove } from '@aws-amplify/storage';
 
-const Galery = ({ images = [], userId = '', onDelete }) => {
+const FOLDER_PREFIX = 'CODIGOUNICODECARPETASKOR';
+
+const Galery = ({ images = [], userId = '', onDelete, onSelectFolder }) => {
   const [openIndex, setOpenIndex] = useState(null);
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, index: null });
   const gridRef = useRef(null);
@@ -35,7 +37,8 @@ const Galery = ({ images = [], userId = '', onDelete }) => {
 
   const loadOriginalImage = async (item) => {
     try {
-      const path = item.path.replace(`uploads/users/${userId}/previews/`, `uploads/users/${userId}/original/`);
+      // Reemplazamos el segmento '/previews/' por '/original/' en la ruta, funcione con o sin carpeta intermedia
+      const path = item.path.replace(/\/previews\//, '/original/');
       const url = await getUrl({ path: path });
       return url.url;
     } catch (error) {
@@ -48,6 +51,25 @@ const Galery = ({ images = [], userId = '', onDelete }) => {
   const openOriginal = async (index) => {
     const item = images[index];
     if (!item) return open(index); // fallback
+
+    // Si el nombre del archivo de preview contiene el prefijo de carpeta,
+    // interpretamos que es un botón/placeholder de carpeta: seleccionamos
+    // la carpeta y recargamos la galería en ese contexto en lugar de
+    // abrir el lightbox para ese placeholder.
+    try {
+      const filename = item.path ? item.path.split('/').pop() : '';
+      if (filename && filename.startsWith(FOLDER_PREFIX)) {
+        const folderPart = filename.slice(FOLDER_PREFIX.length);
+        const folderName = folderPart.replace(/_/g, ' ').trim();
+        if (folderName && typeof onSelectFolder === 'function') {
+          onSelectFolder(folderName);
+          return; // no abrir lightbox: abrimos la carpeta (se recarga la galería)
+        }
+      }
+    } catch (e) {
+      // si falla el parsing, seguimos con el comportamiento normal
+      console.warn('Error parsing folder placeholder name', e);
+    }
 
     if (originalUrls[index]) {
       open(index);
@@ -78,8 +100,8 @@ const Galery = ({ images = [], userId = '', onDelete }) => {
     const item = images[index];
     if (!item) return cancelDelete();
 
-    const previewPath = item.path;
-    const originalPath = previewPath.replace(`uploads/users/${userId}/previews/`, `uploads/users/${userId}/original/`);
+  const previewPath = item.path;
+  const originalPath = previewPath.replace(/\/previews\//, '/original/');
 
     setDeleteModal((s) => ({ ...s, busy: true, error: null }));
     try {

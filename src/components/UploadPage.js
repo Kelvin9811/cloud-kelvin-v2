@@ -3,7 +3,7 @@ import './UploadPage.css';
 import { uploadData, getUrl } from '@aws-amplify/storage';
 import PdfLogo from '../images/pdf_logo.png';
 
-const UploadPage = ({ onUpload, userId = '' }) => {
+const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
     const [files, setFiles] = useState([]);
     const [isUploading, setIsUploading] = useState(false);
     const [uploadStatuses, setUploadStatuses] = useState({}); // index -> 'idle' | 'uploading' | 'done' | 'error'
@@ -53,9 +53,10 @@ const UploadPage = ({ onUpload, userId = '' }) => {
                 const uuid = crypto.randomUUID();
                 const cleanName = file.name.replace(/\s+/g, '_');
 
-                // Rutas
-                const previewPath = `uploads/users/${userId}/previews/${uuid}_${cleanName}`;
-                const finalPath = `uploads/users/${userId}/original/${uuid}_${cleanName}`;
+                // Rutas (si currentFolder está definido, subir dentro de esa carpeta)
+                const basePath = currentFolder ? `uploads/users/${userId}/${currentFolder}` : `uploads/users/${userId}`;
+                const previewPath = `${basePath}/previews/${uuid}_${cleanName}`;
+                const finalPath = `${basePath}/original/${uuid}_${cleanName}`;
 
                 let previewBlob = await createPreview(file);
                 console.log('Preview raw for file', file.name, ':', previewBlob);
