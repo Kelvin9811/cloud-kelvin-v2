@@ -181,10 +181,16 @@ const Galery = ({ images = [], userId = '', onDelete, onSelectFolder }) => {
       )}
 
       <div className="galery-grid" ref={gridRef}>
-        {images.map((img, i) => (
+        {images.map((img, i) => {
+          const filename = img.path ? img.path.split('/').pop() : '';
+          const isFolder = filename && filename.startsWith(FOLDER_PREFIX);
+          const folderLabel = isFolder ? filename.slice(FOLDER_PREFIX.length).replace(/_/g, ' ').trim() : null;
+
+          return (
           <button
             key={i}
             className="galery-item"
+            style={{ position: 'relative', overflow: 'hidden' }}
             ref={(el) => {
               // asignar ref
               itemRefs.current[i] = el;
@@ -194,7 +200,6 @@ const Galery = ({ images = [], userId = '', onDelete, onSelectFolder }) => {
                 calculateSpanForImage(imgEl, i);
               }
             }}
-
             onClick={() => openOriginal(i)}
             aria-label={img.title || `imagen-${i}`}
           >
@@ -205,8 +210,27 @@ const Galery = ({ images = [], userId = '', onDelete, onSelectFolder }) => {
               // al cargar la imagen calculamos el span para el grid (dinámico)
               onLoad={(e) => calculateSpanForImage(e.target, i)}
             />
+
+            {/* Si es un placeholder de carpeta, mostrar etiqueta absoluta abajo */}
+            {isFolder && (
+              <div style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(0,0,0,0.9)',
+                color: '#fff',
+                padding: '6px 8px',
+                textAlign: 'center',
+                fontSize: 14,
+                lineHeight: '1.2',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}>{folderLabel}</div>
+            )}
           </button>
-        ))}
+        )})}
       </div>
 
       {contextMenu.visible && (
