@@ -7,6 +7,8 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
     const [files, setFiles] = useState([]);
     const [isUploading, setIsUploading] = useState(false);
     const [uploadStatuses, setUploadStatuses] = useState({}); // index -> 'idle' | 'uploading' | 'done' | 'error'
+    // Tamaño del lote para uploads concurrentes (ajustable desde la UI)
+    const [batchSize, setBatchSize] = useState(10);
 
     const handleFiles = (e) => {
         const list = Array.from(e.target.files || []);
@@ -54,133 +56,147 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
         return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
     };
 
-    // Sube los archivos a S3 y devuelve array de URLs
+    // Sube los archivos a S3 y devuelve array de URLs (en batches secuenciales)
     const uploadFiles = async (files) => {
 
         if (!files || files.length === 0) return [];
 
-        const uploads = await Promise.all(
-            Array.from(files).map(async (file, idx) => {
+        const results = [];
+        const toUpload = Array.from(files);
+        const safeBatchSize = Math.max(1, Number(batchSize) || 10);
 
-                // mark this file as uploading
-                setUploadStatuses((s) => ({ ...s, [idx]: 'uploading' }));
+        const uploadSingle = async (file, idx) => {
+            // mark this file as uploading
+            setUploadStatuses((s) => ({ ...s, [idx]: 'uploading' }));
 
-                const uuid = crypto.randomUUID();
-                const cleanName = file.name.replace(/\s+/g, '_');
-                const fileDateToken = formatFileDate(file.lastModified || Date.now());
+            const uuid = crypto.randomUUID();
+            const cleanName = file.name.replace(/\s+/g, '_');
+            const fileDateToken = formatFileDate(file.lastModified || Date.now());
 
-                // Rutas (si currentFolder está definido, subir dentro de esa carpeta)
-                const basePath = currentFolder ? `uploads/users/${userId}/${currentFolder}` : `uploads/users/${userId}`;
-                // Anteponer la fecha del archivo antes del uuid
-                const previewPath = `${basePath}/previews/${fileDateToken}_${uuid}_${cleanName}`;
-                const finalPath = `${basePath}/original/${fileDateToken}_${uuid}_${cleanName}`;
+            // Rutas (si currentFolder está definido, subir dentro de esa carpeta)
+            const basePath = currentFolder ? `uploads/users/${userId}/${currentFolder}` : `uploads/users/${userId}`;
+            // Anteponer la fecha del archivo antes del uuid
+            const previewPath = `${basePath}/previews/${fileDateToken}_${uuid}_${cleanName}`;
+            const finalPath = `${basePath}/original/${fileDateToken}_${uuid}_${cleanName}`;
 
-                // Logs para depuración: ruta final y nombre generado
-                console.log(`Prepared upload for file="${file.name}" finalName="${fileDateToken}_${uuid}_${cleanName}"`);
-                console.log('Upload paths -> preview:', previewPath, ' final:', finalPath);
-                
-                let previewBlob = await createPreview(file);
-                console.log('Preview raw for file', file.name, ':', previewBlob);
+            // Logs para depuración: ruta final y nombre generado
+            console.log(`Prepared upload for file="${file.name}" finalName="${fileDateToken}_${uuid}_${cleanName}"`);
+            console.log('Upload paths -> preview:', previewPath, ' final:', finalPath);
 
-                // Si la miniatura viene como base64 (string) o array de base64, convertir a Blob
-                const dataURLtoBlob = (dataurl) => {
-                    const arr = dataurl.split(',');
-                    const mime = arr[0].match(/:(.*?);/)[1];
-                    const bstr = atob(arr[1]);
-                    let n = bstr.length;
-                    const u8arr = new Uint8Array(n);
-                    while (n--) {
-                        u8arr[n] = bstr.charCodeAt(n);
-                    }
-                    return new Blob([u8arr], { type: mime });
-                };
+            let previewBlob = await createPreview(file);
+            console.log('Preview raw for file', file.name, ':', previewBlob);
 
-                // If generateVideoThumbnails returned an array (of dataURLs), pick first
-                let previewToUpload = previewBlob;
-                if (Array.isArray(previewBlob) && previewBlob.length > 0) {
-                    previewToUpload = previewBlob[0];
+            // Si la miniatura viene como base64 (string) o array de base64, convertir a Blob
+            const dataURLtoBlob = (dataurl) => {
+                const arr = dataurl.split(',');
+                const mime = arr[0].match(/:(.*?);/)[1];
+                const bstr = atob(arr[1]);
+                let n = bstr.length;
+                const u8arr = new Uint8Array(n);
+                while (n--) {
+                    u8arr[n] = bstr.charCodeAt(n);
                 }
-                // If it's a string and looks like a data URL, convert to Blob
-                if (typeof previewToUpload === 'string' && previewToUpload.startsWith('data:')) {
-                    try {
-                        previewToUpload = dataURLtoBlob(previewToUpload);
-                    } catch (e) {
-                        console.warn('Failed to convert dataURL to Blob for preview, will skip preview upload', e);
-                        previewToUpload = null;
-                    }
-                }
+                return new Blob([u8arr], { type: mime });
+            };
 
-                console.log('Preview ready for upload for file:', file.name, previewToUpload);
-
+            // If generateVideoThumbnails returned an array (of dataURLs), pick first
+            let previewToUpload = previewBlob;
+            if (Array.isArray(previewBlob) && previewBlob.length > 0) {
+                previewToUpload = previewBlob[0];
+            }
+            // If it's a string and looks like a data URL, convert to Blob
+            if (typeof previewToUpload === 'string' && previewToUpload.startsWith('data:')) {
                 try {
-                    // Subir preview
-                    console.log('Uploading file.type:', file.type);
-                    if (previewToUpload) {
-                        await uploadData({
-                            path: previewPath,
-                            data: previewToUpload,
-                            options: {
-                                contentType: 'image/jpeg',
-                            },
-                            metadata: {
-                                originalName: file.name,
-                                isPreview: 'true',
-                                extension: file.type,
-                                creationDate: new Date(file.lastModified || Date.now()).toISOString()
-                            }
-                        }).result;
-                    } else {
-                        console.log('No preview to upload for', file.name);
-                    }
+                    previewToUpload = dataURLtoBlob(previewToUpload);
+                } catch (e) {
+                    console.warn('Failed to convert dataURL to Blob for preview, will skip preview upload', e);
+                    previewToUpload = null;
+                }
+            }
 
-                    console.log('Uploading final file to path:', finalPath);
-                    console.log('Final metadata creationDate:', new Date(file.lastModified || Date.now()).toISOString());
+            console.log('Preview ready for upload for file:', file.name, previewToUpload);
 
+            try {
+                // Subir preview
+                console.log('Uploading file.type:', file.type);
+                if (previewToUpload) {
                     await uploadData({
-                        path: finalPath,
-                        data: file,
+                        path: previewPath,
+                        data: previewToUpload,
                         options: {
-                            contentType: file.type || 'application/octet-stream',
+                            contentType: 'image/jpeg',
                         },
                         metadata: {
                             originalName: file.name,
-                            isPreview: 'false',
+                            isPreview: 'true',
                             extension: file.type,
                             creationDate: new Date(file.lastModified || Date.now()).toISOString()
                         }
                     }).result;
-
-                    console.log('File uploaded successfully:', file.name);
-
-
-                    // mark as done on success
-                    setUploadStatuses((s) => ({ ...s, [idx]: 'done' }));
-                } catch (error) {
-                    console.error('Error uploading file:', error);
-                    setUploadStatuses((s) => ({ ...s, [idx]: 'error' }));
+                } else {
+                    console.log('No preview to upload for', file.name);
                 }
 
-                const [{ url: previewUrl }, { url: finalUrl }] = await Promise.all([
-                    getUrl({ path: previewPath }),
-                    getUrl({ path: finalPath }),
-                ]);
+                console.log('Uploading final file to path:', finalPath);
+                console.log('Final metadata creationDate:', new Date(file.lastModified || Date.now()).toISOString());
 
-                return {
-                    preview: {
-                        key: previewPath,
-                        url: previewUrl.toString(),
+                await uploadData({
+                    path: finalPath,
+                    data: file,
+                    options: {
+                        contentType: file.type || 'application/octet-stream',
                     },
-                    definitivo: {
-                        key: finalPath,
-                        url: finalUrl.toString(),
-                        name: file.name,
-                        size: file.size,
+                    metadata: {
+                        originalName: file.name,
+                        isPreview: 'false',
+                        extension: file.type,
+                        creationDate: new Date(file.lastModified || Date.now()).toISOString()
                     }
-                };
-            })
-        );
+                }).result;
 
-        return uploads;
+                console.log('File uploaded successfully:', file.name);
+
+                // mark as done on success
+                setUploadStatuses((s) => ({ ...s, [idx]: 'done' }));
+            } catch (error) {
+                console.error('Error uploading file:', error);
+                setUploadStatuses((s) => ({ ...s, [idx]: 'error' }));
+            }
+
+            const [{ url: previewUrl }, { url: finalUrl }] = await Promise.all([
+                getUrl({ path: previewPath }),
+                getUrl({ path: finalPath }),
+            ]);
+
+            return {
+                preview: {
+                    key: previewPath,
+                    url: previewUrl.toString(),
+                },
+                definitivo: {
+                    key: finalPath,
+                    url: finalUrl.toString(),
+                    name: file.name,
+                    size: file.size,
+                }
+            };
+        };
+
+        const total = toUpload.length;
+        for (let start = 0; start < total; start += safeBatchSize) {
+            const batch = toUpload.slice(start, start + safeBatchSize);
+            console.log(`Starting upload batch ${Math.floor(start / safeBatchSize) + 1} (files ${start}..${Math.min(start + safeBatchSize - 1, total - 1)})`);
+
+            // Ejecutar el batch en paralelo (máx safeBatchSize) y esperar a que termine
+            const batchResults = await Promise.all(
+                batch.map((file, indexInBatch) => uploadSingle(file, start + indexInBatch))
+            );
+
+            results.push(...batchResults);
+            console.log(`Finished upload batch ${Math.floor(start / safeBatchSize) + 1}`);
+        }
+
+        return results;
     };
 
     const createPreview = (file) => {
