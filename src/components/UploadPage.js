@@ -2,6 +2,16 @@ import React, { useState } from 'react';
 import './UploadPage.css';
 import { uploadData, getUrl } from '@aws-amplify/storage';
 import PdfLogo from '../images/pdf_logo.png';
+import WordLogo from '../images/word_logo.png';
+import ExcelLogo from '../images/excel_logo.png';
+import PowerPointLogo from '../images/powerpoint_logo.png';
+
+import ZipLogo from '../images/zip_logo.png';
+import CodeLogo from '../images/code_logo.png';
+import AudioLogo from '../images/audio_logo.png';
+
+import FileLogo from '../images/file_logo.png';
+
 
 const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
     const [files, setFiles] = useState([]);
@@ -200,24 +210,45 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
     };
 
     const createPreview = (file) => {
-        if (file.name.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i)) {
-            console.log('Creating image thumbnail for jpg|jpeg|png|gif|bmp|webp:', file.name);
+        const name = file.name.toLowerCase();
+
+        if (/\.(jpg|jpeg|png|gif|bmp|webp|svg)$/.test(name)) {
             return createPreviewImage(file);
-        } else if (file.name.match(/\.(mp4|mov|avi|mkv|webm|wmv)$/i)) {
-            console.log('Creating video thumbnail for file mp4|mov|avi|mkv|webm|wmv:', file.name);
+
+        } else if (/\.(mp4|mov|avi|mkv|webm|wmv)$/.test(name)) {
             return generateVideoThumbnails(file, 1);
-        } else if (file.name.match(/\.pdf$/i)) {
-            return createPdfThumbnail(file);
+
+        } else if (/\.pdf$/.test(name)) {
+            return createFileThumbnail(PdfLogo);
+
+        } else if (/\.(doc|docx)$/.test(name)) {
+            return createFileThumbnail(WordLogo);
+
+        } else if (/\.(xls|xlsx|csv)$/.test(name)) {
+            return createFileThumbnail(ExcelLogo);
+
+        } else if (/\.(ppt|pptx)$/.test(name)) {
+            return createFileThumbnail(PowerPointLogo);
+
+        } else if (/\.(zip|rar|7z|tar|gz)$/.test(name)) {
+            return createFileThumbnail(ZipLogo);
+
+        } else if (/\.(json|xml|yaml|yml|js|ts|java|py|html|css)$/.test(name)) {
+            return createFileThumbnail(CodeLogo);
+
+        } else if (/\.(mp3|wav|aac|ogg)$/.test(name)) {
+            return createFileThumbnail(AudioLogo);
+            
         } else {
-            console.log('No preview created for file:', file.name);
+            return createFileThumbnail(FileLogo);
         }
     };
 
-    const createPdfThumbnail = (file, maxSize = 400) =>
+    const createFileThumbnail = (Logo, maxSize = 400) =>
         new Promise((resolve) => {
             // Use the bundled pdf logo as the preview for PDFs
             const img = new Image();
-            img.src = PdfLogo;
+            img.src = Logo;
 
             img.onload = () => {
                 const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
