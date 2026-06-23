@@ -9,6 +9,46 @@ import backButtonImage from './images/back-button.png';
 import { uploadData, getUrl, list } from '@aws-amplify/storage';
 const FOLDER_PREFIX = 'CODIGOUNICODECARPETASKOR';
 
+const getFilenameFromPath = (path = '') => path.split('/').pop() || '';
+
+const parseUploadDateFromFilename = (path = '') => {
+  const filename = getFilenameFromPath(path);
+  const match = filename.match(/^(\d{8})_(\d{6})_/);
+  if (!match) return null;
+
+  const datePart = match[1];
+  const timePart = match[2];
+  const year = Number(datePart.slice(0, 4));
+  const month = Number(datePart.slice(4, 6)) - 1;
+  const day = Number(datePart.slice(6, 8));
+  const hours = Number(timePart.slice(0, 2));
+  const minutes = Number(timePart.slice(2, 4));
+  const seconds = Number(timePart.slice(4, 6));
+
+  return new Date(year, month, day, hours, minutes, seconds).getTime();
+};
+
+const sortPreviewItems = (items = []) => {
+  return [...items].sort((a, b) => {
+    const aFilename = getFilenameFromPath(a.path);
+    const bFilename = getFilenameFromPath(b.path);
+    const aIsFolder = aFilename.startsWith(FOLDER_PREFIX);
+    const bIsFolder = bFilename.startsWith(FOLDER_PREFIX);
+
+    if (aIsFolder !== bIsFolder) return aIsFolder ? -1 : 1;
+
+    if (aIsFolder && bIsFolder) {
+      return aFilename.localeCompare(bFilename);
+    }
+
+    const aDate = parseUploadDateFromFilename(a.path) ?? 0;
+    const bDate = parseUploadDateFromFilename(b.path) ?? 0;
+    if (aDate !== bDate) return bDate - aDate;
+
+    return bFilename.localeCompare(aFilename);
+  });
+};
+
 const MainScreen = ({ user, signOut }) => {
   const [selected, setSelected] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -109,16 +149,29 @@ const MainScreen = ({ user, signOut }) => {
     resetAndLoadImages(user?.userId, name);
   };
 
+  const listAllPreviewItems = async (userId, folderOverride = null) => {
+    const allItems = [];
+    let currentToken = undefined;
+
+    do {
+      const result = await list({
+        path: getPreviewListPath(userId, folderOverride),
+        options: { pageSize: 1000, nextToken: currentToken }
+      });
+
+      allItems.push(...(result.items || []));
+      currentToken = result.nextToken || undefined;
+    } while (currentToken);
+
+    return allItems;
+  };
+
   const loadImages = async (userId, token = null, folderOverride = null) => {
     if (!userId || loading) return;
     setLoading(true);
     try {
-      console.log('Loading images for user:', userId, 'token:', token, 'folderOverride:', folderOverride);
-      const result = await list({
-        path: getPreviewListPath(userId, folderOverride),
-        options: { pageSize: 20, nextToken: token ? token : undefined }
-      });
-      const items = result.items || [];
+      console.log('Loading images for user:', userId, 'folderOverride:', folderOverride);
+      const items = await listAllPreviewItems(userId, folderOverride);
       const itemsMapped = await Promise.all(
         items.map(async (item) => ({
           properties: (await getUrl({ path: item.path })),
@@ -127,19 +180,8 @@ const MainScreen = ({ user, signOut }) => {
       );
       console.log('List result:', itemsMapped);
 
-      // Merge with previous images and ensure folder placeholders appear first
-      setImages((prev) => {
-        const combined = [...prev, ...itemsMapped];
-        const filename = (p) => (p && p.path) ? p.path.split('/').pop() : '';
-        combined.sort((a, b) => {
-          const aIsFolder = filename(a).startsWith(FOLDER_PREFIX);
-          const bIsFolder = filename(b).startsWith(FOLDER_PREFIX);
-          if (aIsFolder === bIsFolder) return 0; // preserve relative order
-          return aIsFolder ? -1 : 1; // folders first
-        });
-        return combined;
-      });
-      setNextToken(result.nextToken || null);
+      setImages(sortPreviewItems(itemsMapped));
+      setNextToken(null);
     } catch (error) {
       console.log(error);
     } finally {

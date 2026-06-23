@@ -66,6 +66,145 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
         return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
     };
 
+    const parseExifDateString = (value) => {
+        if (!value || typeof value !== 'string') return null;
+        const match = value.match(/^(\d{4}):(\d{2}):(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
+        if (!match) return null;
+
+        const [, year, month, day, hour, minute, second] = match;
+        const parsed = new Date(
+            Number(year),
+            Number(month) - 1,
+            Number(day),
+            Number(hour),
+            Number(minute),
+            Number(second)
+        );
+
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    const getExifCaptureDate = async (file) => {
+        const lowerName = (file?.name || '').toLowerCase();
+        const type = (file?.type || '').toLowerCase();
+        const isSupportedImage =
+            type === 'image/jpeg' ||
+            type === 'image/tiff' ||
+            /\.jpe?g$/.test(lowerName) ||
+            /\.tiff?$/.test(lowerName);
+
+        if (!isSupportedImage) return null;
+
+        try {
+            const buffer = await file.arrayBuffer();
+            const view = new DataView(buffer);
+
+            if (view.byteLength < 4 || view.getUint16(0, false) !== 0xFFD8) {
+                return null;
+            }
+
+            let offset = 2;
+            while (offset + 4 < view.byteLength) {
+                const marker = view.getUint16(offset, false);
+                offset += 2;
+
+                if (marker === 0xFFDA || marker === 0xFFD9) break;
+                if ((marker & 0xFF00) !== 0xFF00) break;
+                if (offset + 2 > view.byteLength) break;
+
+                const segmentLength = view.getUint16(offset, false);
+                if (segmentLength < 2 || offset + segmentLength > view.byteLength) break;
+
+                if (marker === 0xFFE1 && segmentLength >= 8) {
+                    const exifHeader = String.fromCharCode(
+                        view.getUint8(offset + 2),
+                        view.getUint8(offset + 3),
+                        view.getUint8(offset + 4),
+                        view.getUint8(offset + 5),
+                        view.getUint8(offset + 6),
+                        view.getUint8(offset + 7)
+                    );
+
+                    if (exifHeader === 'Exif\0\0') {
+                        const tiffStart = offset + 8;
+                        if (tiffStart + 8 > view.byteLength) return null;
+
+                        const byteOrder = view.getUint16(tiffStart, false);
+                        const littleEndian = byteOrder === 0x4949;
+                        if (!littleEndian && byteOrder !== 0x4D4D) return null;
+
+                        const getUint16At = (position) => view.getUint16(position, littleEndian);
+                        const getUint32At = (position) => view.getUint32(position, littleEndian);
+                        const firstIfdOffset = getUint32At(tiffStart + 4);
+
+                        const readAsciiAt = (entryOffset, typeId, count) => {
+                            if (typeId !== 2 || count <= 0) return null;
+                            const valueOffset = count <= 4
+                                ? entryOffset + 8
+                                : tiffStart + getUint32At(entryOffset + 8);
+                            if (valueOffset + count > view.byteLength) return null;
+
+                            let text = '';
+                            for (let i = 0; i < count - 1; i += 1) {
+                                text += String.fromCharCode(view.getUint8(valueOffset + i));
+                            }
+                            return text;
+                        };
+
+                        const readIfd = (relativeOffset) => {
+                            const ifdOffset = tiffStart + relativeOffset;
+                            if (ifdOffset + 2 > view.byteLength) return null;
+
+                            const entryCount = getUint16At(ifdOffset);
+                            for (let i = 0; i < entryCount; i += 1) {
+                                const entryOffset = ifdOffset + 2 + (i * 12);
+                                if (entryOffset + 12 > view.byteLength) return null;
+
+                                const tag = getUint16At(entryOffset);
+                                const typeId = getUint16At(entryOffset + 2);
+                                const count = getUint32At(entryOffset + 4);
+
+                                if (tag === 0x9003 || tag === 0x9004 || tag === 0x0132) {
+                                    const value = readAsciiAt(entryOffset, typeId, count);
+                                    const parsedDate = parseExifDateString(value);
+                                    if (parsedDate) return parsedDate;
+                                }
+
+                                if (tag === 0x8769) {
+                                    const nestedIfdOffset = getUint32At(entryOffset + 8);
+                                    const nestedDate = readIfd(nestedIfdOffset);
+                                    if (nestedDate) return nestedDate;
+                                }
+                            }
+
+                            return null;
+                        };
+
+                        return readIfd(firstIfdOffset);
+                    }
+                }
+
+                offset += segmentLength;
+            }
+        } catch (error) {
+            console.warn('No se pudo leer EXIF de la imagen, se usarÃ¡ lastModified', error);
+        }
+
+        return null;
+    };
+
+    const getPreferredFileDate = async (file) => {
+        const captureDate = await getExifCaptureDate(file);
+        if (captureDate) {
+            return { date: captureDate, source: 'captureDate' };
+        }
+
+        return {
+            date: new Date(file?.lastModified || Date.now()),
+            source: 'lastModified'
+        };
+    };
+
     // Sube los archivos a S3 y devuelve array de URLs (en batches secuenciales)
     const uploadFiles = async (files) => {
 
@@ -81,7 +220,10 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
 
             const uuid = crypto.randomUUID();
             const cleanName = file.name.replace(/\s+/g, '_');
-            const fileDateToken = formatFileDate(file.lastModified || Date.now());
+            const { date: preferredDate, source: preferredDateSource } = await getPreferredFileDate(file);
+            const preferredTimestamp = preferredDate?.getTime?.() || file.lastModified || Date.now();
+            const fileDateToken = formatFileDate(preferredTimestamp);
+            const preferredDateIso = new Date(preferredTimestamp).toISOString();
 
             // Rutas (si currentFolder está definido, subir dentro de esa carpeta)
             const basePath = currentFolder ? `uploads/users/${userId}/${currentFolder}` : `uploads/users/${userId}`;
@@ -90,7 +232,7 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
             const finalPath = `${basePath}/original/${fileDateToken}_${uuid}_${cleanName}`;
 
             // Logs para depuración: ruta final y nombre generado
-            console.log(`Prepared upload for file="${file.name}" finalName="${fileDateToken}_${uuid}_${cleanName}"`);
+            console.log(`Prepared upload for file="${file.name}" finalName="${fileDateToken}_${uuid}_${cleanName}" dateSource="${preferredDateSource}" dateIso="${preferredDateIso}"`);
             console.log('Upload paths -> preview:', previewPath, ' final:', finalPath);
 
             let previewBlob = await createPreview(file);
@@ -140,7 +282,8 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                             originalName: file.name,
                             isPreview: 'true',
                             extension: file.type,
-                            creationDate: new Date(file.lastModified || Date.now()).toISOString()
+                            creationDate: preferredDateIso,
+                            dateSource: preferredDateSource
                         }
                     }).result;
                 } else {
@@ -148,7 +291,7 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                 }
 
                 console.log('Uploading final file to path:', finalPath);
-                console.log('Final metadata creationDate:', new Date(file.lastModified || Date.now()).toISOString());
+                console.log('Final metadata creationDate:', preferredDateIso);
 
                 await uploadData({
                     path: finalPath,
@@ -156,12 +299,13 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                     options: {
                         contentType: file.type || 'application/octet-stream',
                     },
-                    metadata: {
-                        originalName: file.name,
-                        isPreview: 'false',
-                        extension: file.type,
-                        creationDate: new Date(file.lastModified || Date.now()).toISOString()
-                    }
+                        metadata: {
+                            originalName: file.name,
+                            isPreview: 'false',
+                            extension: file.type,
+                            creationDate: preferredDateIso,
+                            dateSource: preferredDateSource
+                        }
                 }).result;
 
                 console.log('File uploaded successfully:', file.name);
