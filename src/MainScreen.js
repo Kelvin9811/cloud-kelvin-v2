@@ -49,12 +49,15 @@ const sortPreviewItems = (items = []) => {
   });
 };
 
+const PAGE_SIZE = 20;
+
 const MainScreen = ({ user, signOut }) => {
   const [selected, setSelected] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef();
 
   // nuevo estado para las imágenes cargadas y paginación
+  const [allImages, setAllImages] = useState([]);
   const [images, setImages] = useState([]);
   const [nextToken, setNextToken] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -166,6 +169,20 @@ const MainScreen = ({ user, signOut }) => {
     return allItems;
   };
 
+  const applyLocalPagination = (sortedItems, offset = 0) => {
+    const nextOffset = offset + PAGE_SIZE;
+    const nextPage = sortedItems.slice(offset, nextOffset);
+    setImages((prev) => offset === 0 ? nextPage : [...prev, ...nextPage]);
+    setNextToken(nextOffset < sortedItems.length ? String(nextOffset) : null);
+  };
+
+  const loadMoreImages = () => {
+    if (loading || !nextToken) return;
+    const offset = Number(nextToken);
+    if (Number.isNaN(offset)) return;
+    applyLocalPagination(allImages, offset);
+  };
+
   const loadImages = async (userId, token = null, folderOverride = null) => {
     if (!userId || loading) return;
     setLoading(true);
@@ -180,8 +197,9 @@ const MainScreen = ({ user, signOut }) => {
       );
       console.log('List result:', itemsMapped);
 
-      setImages(sortPreviewItems(itemsMapped));
-      setNextToken(null);
+      const sortedItems = sortPreviewItems(itemsMapped);
+      setAllImages(sortedItems);
+      applyLocalPagination(sortedItems, 0);
     } catch (error) {
       console.log(error);
     } finally {
@@ -191,6 +209,7 @@ const MainScreen = ({ user, signOut }) => {
 
   // Resetea el estado de la galería y fuerza una recarga desde la primera página
   const resetAndLoadImages = (userId, folderOverride = null) => {
+    setAllImages([]);
     setImages([]);
     setNextToken(null);
     setLoading(false);
@@ -210,6 +229,11 @@ const MainScreen = ({ user, signOut }) => {
 
   // Handler para eliminar un item localmente sin recargar toda la galería
   const handleDeleteLocal = (index, item) => {
+    setAllImages((prev) => {
+      const updated = prev.filter((entry) => entry.path !== item?.path);
+      setNextToken(images.length < updated.length ? String(images.length) : null);
+      return updated;
+    });
     setImages((prev) => prev.filter((_, i) => i !== index));
   };
 
@@ -219,6 +243,7 @@ const MainScreen = ({ user, signOut }) => {
     if (didLoadRef.current) return;
     didLoadRef.current = true;
 
+    setAllImages([]);
     setImages([]);
     setNextToken(null);
     setLoading(false);
@@ -232,12 +257,12 @@ const MainScreen = ({ user, signOut }) => {
       if (!nextToken) return;
       const nearBottom = (window.innerHeight + window.scrollY) >= (document.body.offsetHeight - 300);
       if (nearBottom) {
-        loadImages(user?.userId, nextToken);
+        loadMoreImages();
       }
     };
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
-  }, [nextToken, loading, user]);
+  }, [nextToken, loading, allImages]);
 
   // cerrar menú si se hace clic fuera
   useEffect(() => {
