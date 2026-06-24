@@ -26,6 +26,11 @@
       "name": "AdminQueries",
       "endpoint": "https://vt25y4u1n1.execute-api.us-east-1.amazonaws.com/dev",
       "region": "us-east-1"
+    },
+    {
+      "name": "PublicShares",
+      "endpoint": "https://na4kut1nf1.execute-api.us-east-1.amazonaws.com/dev",
+      "region": "us-east-1"
     }
   ],
   "aws_user_files_s3_bucket": "cloudkelvinv26ae35849a4104091a533f1be1213b752e2bbe-dev",
