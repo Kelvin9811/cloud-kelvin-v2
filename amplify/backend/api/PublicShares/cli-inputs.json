@@ -1,7 +1,8 @@
 {
   "version": 1,
   "paths": {
-    "/{proxy+}": {
+    "/shares/{shareId}": {
+      "name": "/shares/{shareId}",
       "lambdaFunction": "AdminQueriesaf84bc40",
       "permissions": {
         "setting": "open"

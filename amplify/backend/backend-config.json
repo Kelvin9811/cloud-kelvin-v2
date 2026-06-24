@@ -23,12 +23,11 @@
       "service": "API Gateway"
     },
     "PublicShares": {
-      "authorizationType": "NONE",
       "dependsOn": [
         {
           "attributes": [
-            "Arn",
-            "Name"
+            "Name",
+            "Arn"
           ],
           "category": "function",
           "resourceName": "AdminQueriesaf84bc40"

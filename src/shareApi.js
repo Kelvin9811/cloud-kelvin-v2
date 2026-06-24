@@ -157,6 +157,12 @@ export const unpublishShare = async ({ userId, folderName }) => {
 
 export const getPublicShare = async (shareId) => {
     const path = publicApiConfig ? `/shares/${shareId}` : `/public/shares/${shareId}`;
+    console.log('[shareApi] Sending getPublicShare', {
+        path,
+        publicApiRoot,
+        usingDedicatedPublicApi: Boolean(publicApiConfig),
+        shareId,
+    });
     const response = await fetch(buildPublicUrl(path), {
         method: 'GET',
     });
@@ -167,6 +173,13 @@ export const getPublicOriginal = async (shareId, publicId) => {
     const path = publicApiConfig
         ? `/shares/${shareId}/items/${publicId}/original`
         : `/public/shares/${shareId}/items/${publicId}/original`;
+    console.log('[shareApi] Sending getPublicOriginal', {
+        path,
+        publicApiRoot,
+        usingDedicatedPublicApi: Boolean(publicApiConfig),
+        shareId,
+        publicId,
+    });
     const response = await fetch(buildPublicUrl(path), {
         method: 'GET',
     });
