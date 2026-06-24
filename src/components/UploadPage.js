@@ -1,31 +1,70 @@
 import React, { useState } from 'react';
 import './UploadPage.css';
-import { uploadData, getUrl } from '@aws-amplify/storage';
+import { uploadData, getUrl, list } from '@aws-amplify/storage';
 import PdfLogo from '../images/pdf_logo.png';
 import WordLogo from '../images/word_logo.png';
 import ExcelLogo from '../images/excel_logo.png';
 import PowerPointLogo from '../images/powerpoint_logo.png';
-
 import ZipLogo from '../images/zip_logo.png';
 import CodeLogo from '../images/code_logo.png';
 import AudioLogo from '../images/audio_logo.png';
-
 import FileLogo from '../images/file_logo.png';
-
 
 const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
     const [files, setFiles] = useState([]);
     const [isUploading, setIsUploading] = useState(false);
-    const [uploadStatuses, setUploadStatuses] = useState({}); // index -> 'idle' | 'uploading' | 'done' | 'error'
-    // Tamaño del lote para uploads concurrentes (ajustable desde la UI)
-    const [batchSize, setBatchSize] = useState(10);
+    const [uploadStatuses, setUploadStatuses] = useState({});
+    const [batchSize] = useState(10);
 
-    const handleFiles = (e) => {
-        const list = Array.from(e.target.files || []);
-        setFiles(list);
+    const withTimeout = (promise, ms, label) =>
+        new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+            promise
+                .then((value) => {
+                    clearTimeout(timer);
+                    resolve(value);
+                })
+                .catch((error) => {
+                    clearTimeout(timer);
+                    reject(error);
+                });
+        });
+
+    const normalizeFileName = (name = '') => name.trim().replace(/\s+/g, '_').toLowerCase();
+
+    const getBasePath = () => currentFolder ? `uploads/users/${userId}/${currentFolder}` : `uploads/users/${userId}`;
+
+    const getOriginalListPath = () => `${getBasePath()}/original/`;
+
+    const extractComparableOriginalName = (path = '') => {
+        const filename = path.split('/').pop() || '';
+        const match = filename.match(/^\d{8}_\d{6}_[^_]+_(.+)$/);
+        return normalizeFileName(match ? match[1] : filename);
     };
 
-    // Trunca el nombre para mostrar en UI a un máximo de n caracteres (con ...)
+    const listAllItems = async (path) => {
+        const allItems = [];
+        let nextToken = undefined;
+
+        do {
+            const result = await list({
+                path,
+                options: { pageSize: 1000, nextToken }
+            });
+
+            allItems.push(...(result.items || []));
+            nextToken = result.nextToken || undefined;
+        } while (nextToken);
+
+        return allItems;
+    };
+
+    const handleFiles = (e) => {
+        const selectedFiles = Array.from(e.target.files || []);
+        setFiles(selectedFiles);
+        setUploadStatuses({});
+    };
+
     const truncateName = (name, max = 40) => {
         if (!name) return '';
         if (name.length <= max) return name;
@@ -33,7 +72,6 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
     };
 
     const handleUpload = async () => {
-
         if (files.length === 0) return;
 
         setIsUploading(true);
@@ -41,25 +79,19 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
             if (typeof onUpload === 'function') {
                 onUpload(files);
             }
-            const uploadedFiles = await uploadFiles(files);
-
-            // You might want to do something with uploadedFiles here
+            await uploadFiles(files);
         } finally {
             setIsUploading(false);
-            // NOTE: do not clear selected files here — keep them visible until the user leaves the screen
-            // setFiles([]);
         }
     };
 
     const handleClearAll = () => {
-        // Reiniciar todo el estado relacionado con la carga para empezar de nuevo
         console.log('Clearing selected files and upload statuses');
         setFiles([]);
         setUploadStatuses({});
         setIsUploading(false);
     };
 
-    // Formatea la fecha del archivo para usar en el nombre: YYYYMMDD_HHMMSS
     const formatFileDate = (ts) => {
         const d = new Date(ts || Date.now());
         const pad = (n) => String(n).padStart(2, '0');
@@ -187,7 +219,7 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                 offset += segmentLength;
             }
         } catch (error) {
-            console.warn('No se pudo leer EXIF de la imagen, se usarÃ¡ lastModified', error);
+            console.warn('No se pudo leer EXIF de la imagen, se usara lastModified', error);
         }
 
         return null;
@@ -205,17 +237,53 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
         };
     };
 
-    // Sube los archivos a S3 y devuelve array de URLs (en batches secuenciales)
-    const uploadFiles = async (files) => {
+    const getDuplicateNameSet = async (filesToCheck) => {
+        const duplicateNames = new Set();
+        const normalizedNames = filesToCheck.map((file) => normalizeFileName(file.name));
+        const seenInSelection = new Set();
 
-        if (!files || files.length === 0) return [];
+        normalizedNames.forEach((name) => {
+            if (seenInSelection.has(name)) {
+                duplicateNames.add(name);
+            } else {
+                seenInSelection.add(name);
+            }
+        });
+
+        if (!userId) return duplicateNames;
+
+        try {
+            const existingItems = await listAllItems(getOriginalListPath());
+            const existingNames = new Set(existingItems.map((item) => extractComparableOriginalName(item.path)));
+
+            normalizedNames.forEach((name) => {
+                if (existingNames.has(name)) {
+                    duplicateNames.add(name);
+                }
+            });
+        } catch (error) {
+            console.warn('No se pudo validar duplicados contra S3', error);
+        }
+
+        return duplicateNames;
+    };
+
+    const uploadFiles = async (selectedFiles) => {
+        if (!selectedFiles || selectedFiles.length === 0) return [];
 
         const results = [];
-        const toUpload = Array.from(files);
+        const toUpload = Array.from(selectedFiles);
         const safeBatchSize = Math.max(1, Number(batchSize) || 10);
+        const duplicateNames = await getDuplicateNameSet(toUpload);
 
         const uploadSingle = async (file, idx) => {
-            // mark this file as uploading
+            const normalizedName = normalizeFileName(file.name);
+            if (duplicateNames.has(normalizedName)) {
+                console.warn('Skipping duplicate file:', file.name);
+                setUploadStatuses((s) => ({ ...s, [idx]: 'duplicate' }));
+                return { skipped: true, reason: 'duplicate', name: file.name };
+            }
+
             setUploadStatuses((s) => ({ ...s, [idx]: 'uploading' }));
 
             const uuid = crypto.randomUUID();
@@ -225,20 +293,21 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
             const fileDateToken = formatFileDate(preferredTimestamp);
             const preferredDateIso = new Date(preferredTimestamp).toISOString();
 
-            // Rutas (si currentFolder está definido, subir dentro de esa carpeta)
-            const basePath = currentFolder ? `uploads/users/${userId}/${currentFolder}` : `uploads/users/${userId}`;
-            // Anteponer la fecha del archivo antes del uuid
+            const basePath = getBasePath();
             const previewPath = `${basePath}/previews/${fileDateToken}_${uuid}_${cleanName}`;
             const finalPath = `${basePath}/original/${fileDateToken}_${uuid}_${cleanName}`;
 
-            // Logs para depuración: ruta final y nombre generado
             console.log(`Prepared upload for file="${file.name}" finalName="${fileDateToken}_${uuid}_${cleanName}" dateSource="${preferredDateSource}" dateIso="${preferredDateIso}"`);
             console.log('Upload paths -> preview:', previewPath, ' final:', finalPath);
 
-            let previewBlob = await createPreview(file);
+            let previewBlob = null;
+            try {
+                previewBlob = await withTimeout(createPreview(file), 30000, `preview generation for ${file.name}`);
+            } catch (previewError) {
+                console.warn('Preview generation failed or timed out, continuing without preview for', file.name, previewError);
+            }
             console.log('Preview raw for file', file.name, ':', previewBlob);
 
-            // Si la miniatura viene como base64 (string) o array de base64, convertir a Blob
             const dataURLtoBlob = (dataurl) => {
                 const arr = dataurl.split(',');
                 const mime = arr[0].match(/:(.*?);/)[1];
@@ -251,12 +320,10 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                 return new Blob([u8arr], { type: mime });
             };
 
-            // If generateVideoThumbnails returned an array (of dataURLs), pick first
             let previewToUpload = previewBlob;
             if (Array.isArray(previewBlob) && previewBlob.length > 0) {
                 previewToUpload = previewBlob[0];
             }
-            // If it's a string and looks like a data URL, convert to Blob
             if (typeof previewToUpload === 'string' && previewToUpload.startsWith('data:')) {
                 try {
                     previewToUpload = dataURLtoBlob(previewToUpload);
@@ -269,10 +336,9 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
             console.log('Preview ready for upload for file:', file.name, previewToUpload);
 
             try {
-                // Subir preview
                 console.log('Uploading file.type:', file.type);
                 if (previewToUpload) {
-                    await uploadData({
+                    await withTimeout(uploadData({
                         path: previewPath,
                         data: previewToUpload,
                         options: {
@@ -285,7 +351,7 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                             creationDate: preferredDateIso,
                             dateSource: preferredDateSource
                         }
-                    }).result;
+                    }).result, 120000, `preview upload for ${file.name}`);
                 } else {
                     console.log('No preview to upload for', file.name);
                 }
@@ -293,43 +359,49 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                 console.log('Uploading final file to path:', finalPath);
                 console.log('Final metadata creationDate:', preferredDateIso);
 
-                await uploadData({
+                await withTimeout(uploadData({
                     path: finalPath,
                     data: file,
                     options: {
                         contentType: file.type || 'application/octet-stream',
                     },
-                        metadata: {
-                            originalName: file.name,
-                            isPreview: 'false',
-                            extension: file.type,
-                            creationDate: preferredDateIso,
-                            dateSource: preferredDateSource
-                        }
-                }).result;
+                    metadata: {
+                        originalName: file.name,
+                        isPreview: 'false',
+                        extension: file.type,
+                        creationDate: preferredDateIso,
+                        dateSource: preferredDateSource
+                    }
+                }).result, 300000, `final upload for ${file.name}`);
 
                 console.log('File uploaded successfully:', file.name);
-
-                // mark as done on success
                 setUploadStatuses((s) => ({ ...s, [idx]: 'done' }));
             } catch (error) {
                 console.error('Error uploading file:', error);
                 setUploadStatuses((s) => ({ ...s, [idx]: 'error' }));
+                return { skipped: true, reason: 'error', name: file.name, error };
             }
 
-            const [{ url: previewUrl }, { url: finalUrl }] = await Promise.all([
-                getUrl({ path: previewPath }),
-                getUrl({ path: finalPath }),
+            const [previewUrlResult, finalUrlResult] = await Promise.allSettled([
+                previewToUpload ? withTimeout(getUrl({ path: previewPath }), 30000, `preview url for ${file.name}`) : Promise.resolve(null),
+                withTimeout(getUrl({ path: finalPath }), 30000, `final url for ${file.name}`),
             ]);
+
+            const previewUrl = previewUrlResult.status === 'fulfilled' && previewUrlResult.value?.url
+                ? previewUrlResult.value.url.toString()
+                : null;
+            const finalUrl = finalUrlResult.status === 'fulfilled' && finalUrlResult.value?.url
+                ? finalUrlResult.value.url.toString()
+                : null;
 
             return {
                 preview: {
                     key: previewPath,
-                    url: previewUrl.toString(),
+                    url: previewUrl,
                 },
                 definitivo: {
                     key: finalPath,
-                    url: finalUrl.toString(),
+                    url: finalUrl,
                     name: file.name,
                     size: file.size,
                 }
@@ -341,12 +413,17 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
             const batch = toUpload.slice(start, start + safeBatchSize);
             console.log(`Starting upload batch ${Math.floor(start / safeBatchSize) + 1} (files ${start}..${Math.min(start + safeBatchSize - 1, total - 1)})`);
 
-            // Ejecutar el batch en paralelo (máx safeBatchSize) y esperar a que termine
-            const batchResults = await Promise.all(
+            const batchResults = await Promise.allSettled(
                 batch.map((file, indexInBatch) => uploadSingle(file, start + indexInBatch))
             );
 
-            results.push(...batchResults);
+            batchResults.forEach((result) => {
+                if (result.status === 'fulfilled' && result.value && !result.value.skipped) {
+                    results.push(result.value);
+                } else if (result.status === 'rejected') {
+                    console.error('Batch item failed unexpectedly:', result.reason);
+                }
+            });
             console.log(`Finished upload batch ${Math.floor(start / safeBatchSize) + 1}`);
         }
 
@@ -358,39 +435,45 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
 
         if (/\.(jpg|jpeg|png|gif|bmp|webp|svg)$/.test(name)) {
             return createPreviewImage(file);
-
-        } else if (/\.(mp4|mov|avi|mkv|webm|wmv)$/.test(name)) {
-            return generateVideoThumbnails(file, 1);
-
-        } else if (/\.pdf$/.test(name)) {
-            return createFileThumbnail(PdfLogo);
-
-        } else if (/\.(doc|docx)$/.test(name)) {
-            return createFileThumbnail(WordLogo);
-
-        } else if (/\.(xls|xlsx|csv)$/.test(name)) {
-            return createFileThumbnail(ExcelLogo);
-
-        } else if (/\.(ppt|pptx)$/.test(name)) {
-            return createFileThumbnail(PowerPointLogo);
-
-        } else if (/\.(zip|rar|7z|tar|gz)$/.test(name)) {
-            return createFileThumbnail(ZipLogo);
-
-        } else if (/\.(json|xml|yaml|yml|js|ts|java|py|html|css)$/.test(name)) {
-            return createFileThumbnail(CodeLogo);
-
-        } else if (/\.(mp3|wav|aac|ogg)$/.test(name)) {
-            return createFileThumbnail(AudioLogo);
-            
-        } else {
-            return createFileThumbnail(FileLogo);
         }
+
+        if (/\.(mp4|mov|avi|mkv|webm|wmv)$/.test(name)) {
+            return generateVideoThumbnails(file, 1);
+        }
+
+        if (/\.pdf$/.test(name)) {
+            return createFileThumbnail(PdfLogo);
+        }
+
+        if (/\.(doc|docx)$/.test(name)) {
+            return createFileThumbnail(WordLogo);
+        }
+
+        if (/\.(xls|xlsx|csv)$/.test(name)) {
+            return createFileThumbnail(ExcelLogo);
+        }
+
+        if (/\.(ppt|pptx)$/.test(name)) {
+            return createFileThumbnail(PowerPointLogo);
+        }
+
+        if (/\.(zip|rar|7z|tar|gz)$/.test(name)) {
+            return createFileThumbnail(ZipLogo);
+        }
+
+        if (/\.(json|xml|yaml|yml|js|ts|java|py|html|css)$/.test(name)) {
+            return createFileThumbnail(CodeLogo);
+        }
+
+        if (/\.(mp3|wav|aac|ogg)$/.test(name)) {
+            return createFileThumbnail(AudioLogo);
+        }
+
+        return createFileThumbnail(FileLogo);
     };
 
     const createFileThumbnail = (Logo, maxSize = 400) =>
         new Promise((resolve) => {
-            // Use the bundled pdf logo as the preview for PDFs
             const img = new Image();
             img.src = Logo;
 
@@ -403,9 +486,8 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                 canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.8);
             };
 
-            // If the image fails to load, resolve with null so upload flow can skip
             img.onerror = () => {
-                console.warn('Failed to load PDF logo for thumbnail, skipping preview');
+                console.warn('Failed to load file logo for thumbnail, skipping preview');
                 resolve(null);
             };
         });
@@ -414,34 +496,31 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
         new Promise((resolve) => {
             console.log('Generating createPreviewImage image for file:', file.name);
             const img = new Image();
-            img.src = URL.createObjectURL(file);
+            const objectUrl = URL.createObjectURL(file);
+            img.src = objectUrl;
 
             img.onload = () => {
                 const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
-
                 const canvas = document.createElement('canvas');
                 canvas.width = img.width * scale;
                 canvas.height = img.height * scale;
+                canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+                canvas.toBlob((blob) => {
+                    URL.revokeObjectURL(objectUrl);
+                    resolve(blob);
+                }, 'image/jpeg', 0.25);
+            };
 
-                canvas
-                    .getContext('2d')
-                    .drawImage(img, 0, 0, canvas.width, canvas.height);
-
-                canvas.toBlob(
-                    (blob) => resolve(blob),
-                    'image/jpeg',
-                    0.25 // compresión
-                );
+            img.onerror = () => {
+                URL.revokeObjectURL(objectUrl);
+                resolve(null);
             };
         });
 
-    // convert image to object part instead of base64 for better performance
-    // https://developer.mozilla.org/en-US/docs/Web/API/URL/createObjectURL
     const importFileandPreview = (file, revoke) => {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             window.URL = window.URL || window.webkitURL;
-            let preview = window.URL.createObjectURL(file);
-            // remove reference
+            const preview = window.URL.createObjectURL(file);
             if (revoke) {
                 window.URL.revokeObjectURL(preview);
             }
@@ -449,125 +528,158 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                 resolve(preview);
             }, 100);
         });
-    }
-
+    };
 
     const generateVideoThumbnails = async (videoFile, numberOfThumbnails) => {
+        if (!videoFile.type?.includes('video')) {
+            throw new Error('not a valid video file');
+        }
 
-        let thumbnail = [];
-        let fractions = [];
+        try {
+            const duration = await withTimeout(getVideoDuration(videoFile), 15000, `video duration for ${videoFile.name}`);
+            const safeDuration = Math.max(1, Math.floor(duration || 1));
+            const safeCount = Math.max(1, Number(numberOfThumbnails) || 1);
+            const fractions = Array.from({ length: safeCount }, (_, index) =>
+                Math.min(safeDuration, Math.floor((index * safeDuration) / safeCount))
+            );
 
-        return new Promise(async (resolve, reject) => {
-            if (!videoFile.type?.includes("video")) reject("not a valid video file");
-            await getVideoDuration(videoFile).then(async (duration) => {
-                // divide the video timing into particular timestamps in respective to number of thumbnails
-                // ex if time is 10 and numOfthumbnails is 4 then result will be -> 0, 2.5, 5, 7.5 ,10
-                // we will use this timestamp to take snapshots
-                for (let i = 0; i <= duration; i += duration / numberOfThumbnails) {
-                    fractions.push(Math.floor(i));
-                }
-                // the array of promises
-                let promiseArray = fractions.map((time) => {
-                    return getVideoThumbnail(videoFile, time)
-                })
-                console.log('promiseArray', promiseArray)
-                console.log('duration', duration)
-                console.log('fractions', fractions)
-                await Promise.all(promiseArray).then((res) => {
-                    res.forEach((res) => {
-                        console.log('res', res.slice(0, 8))
-                        thumbnail.push(res);
-                    });
-                    console.log('thumbnail', thumbnail)
-                    resolve(thumbnail);
-                }).catch((err) => {
-                    console.error(err)
-                }).finally((res) => {
-                    console.log(res);
-                    resolve(thumbnail);
-                })
-            });
-            reject("something went wront");
-        });
+            console.log('duration', duration);
+            console.log('fractions', fractions);
+
+            const thumbnailResults = await Promise.allSettled(
+                fractions.map((time) => withTimeout(getVideoThumbnail(videoFile, time), 20000, `video thumbnail for ${videoFile.name} at ${time}s`))
+            );
+
+            const thumbnails = thumbnailResults
+                .filter((result) => result.status === 'fulfilled' && result.value)
+                .map((result) => result.value);
+
+            console.log('thumbnail', thumbnails);
+            return thumbnails;
+        } catch (error) {
+            console.warn('Failed to generate video thumbnails for', videoFile.name, error);
+            return [];
+        }
     };
 
     const getVideoThumbnail = (file, videoTimeInSeconds) => {
         return new Promise((resolve, reject) => {
-            if (file.type.match("video")) {
-                importFileandPreview(file).then((urlOfFIle) => {
-                    var video = document.createElement("video");
-                    var timeupdate = function () {
-                        if (snapImage()) {
-                            video.removeEventListener("timeupdate", timeupdate);
-                            video.pause();
-                        }
-                    };
-                    video.addEventListener("loadeddata", function () {
-                        if (snapImage()) {
-                            video.removeEventListener("timeupdate", timeupdate);
-                        }
-                    });
-                    var snapImage = function (opts = {}) {
-                        const maxWidth = opts.maxWidth || 640;
-                        const maxHeight = opts.maxHeight || 480;
-                        const quality = typeof opts.quality === 'number' ? opts.quality : 0.5; // JPEG quality 0..1
-
-                        var canvas = document.createElement("canvas");
-                        const vw = video.videoWidth || maxWidth;
-                        const vh = video.videoHeight || maxHeight;
-                        // calculate scale to fit within maxWidth/maxHeight
-                        const scale = Math.min(1, maxWidth / vw, maxHeight / vh);
-                        canvas.width = Math.max(1, Math.floor(vw * scale));
-                        canvas.height = Math.max(1, Math.floor(vh * scale));
-                        canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-                        // compress to JPEG to save space
-                        var image = canvas.toDataURL('image/jpeg', quality);
-                        // Always resolve with the generated thumbnail (even if small)
-                        try { URL.revokeObjectURL(urlOfFIle); } catch (e) { }
-                        resolve(image);
-                        return true;
-                    };
-                    video.addEventListener("timeupdate", timeupdate);
-                    video.preload = "metadata";
-                    video.src = urlOfFIle;
-                    // Load video in Safari / IE11
-                    video.muted = true;
-                    video.playsInline = true;
-                    video.currentTime = videoTimeInSeconds;
-                    video.play();
-                });
-            } else {
-                reject("file not valid");
+            if (!file.type.match('video')) {
+                reject(new Error('file not valid'));
+                return;
             }
+
+            importFileandPreview(file).then((urlOfFile) => {
+                const video = document.createElement('video');
+                let resolved = false;
+
+                const cleanup = () => {
+                    video.removeEventListener('loadeddata', onLoadedData);
+                    video.removeEventListener('seeked', onSeeked);
+                    video.removeEventListener('error', onError);
+                    try { video.pause(); } catch (e) { }
+                    try { URL.revokeObjectURL(urlOfFile); } catch (e) { }
+                };
+
+                const finish = (value) => {
+                    if (resolved) return;
+                    resolved = true;
+                    cleanup();
+                    resolve(value);
+                };
+
+                const fail = (error) => {
+                    if (resolved) return;
+                    resolved = true;
+                    cleanup();
+                    reject(error);
+                };
+
+                const snapImage = (opts = {}) => {
+                    const maxWidth = opts.maxWidth || 640;
+                    const maxHeight = opts.maxHeight || 480;
+                    const quality = typeof opts.quality === 'number' ? opts.quality : 0.5;
+                    const canvas = document.createElement('canvas');
+                    const vw = video.videoWidth || maxWidth;
+                    const vh = video.videoHeight || maxHeight;
+                    const scale = Math.min(1, maxWidth / vw, maxHeight / vh);
+                    canvas.width = Math.max(1, Math.floor(vw * scale));
+                    canvas.height = Math.max(1, Math.floor(vh * scale));
+                    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+                    return canvas.toDataURL('image/jpeg', quality);
+                };
+
+                const onLoadedData = () => {
+                    try {
+                        const duration = Number.isFinite(video.duration) ? video.duration : 0;
+                        const safeTime = Math.min(Math.max(videoTimeInSeconds, 0), duration > 0 ? Math.max(duration - 0.1, 0) : videoTimeInSeconds);
+                        video.currentTime = safeTime;
+                    } catch (error) {
+                        fail(error);
+                    }
+                };
+
+                const onSeeked = () => {
+                    try {
+                        finish(snapImage());
+                    } catch (error) {
+                        fail(error);
+                    }
+                };
+
+                const onError = () => fail(new Error(`Failed to load video thumbnail for ${file.name}`));
+
+                video.addEventListener('loadeddata', onLoadedData);
+                video.addEventListener('seeked', onSeeked);
+                video.addEventListener('error', onError);
+                video.preload = 'metadata';
+                video.src = urlOfFile;
+                video.muted = true;
+                video.playsInline = true;
+            }).catch(reject);
         });
     };
 
-    /**
-     *
-     * @param videoFile {File}
-     * @returns {number} the duration of video in seconds
-     */
     const getVideoDuration = (videoFile) => {
         return new Promise((resolve, reject) => {
-            if (videoFile) {
-                if (videoFile.type.match("video")) {
-                    importFileandPreview(videoFile).then((url) => {
-                        let video = document.createElement("video");
-                        video.addEventListener("loadeddata", function () {
-                            resolve(video.duration);
-                        });
-                        video.preload = "metadata";
-                        video.src = url;
-                        // Load video in Safari / IE11
-                        video.muted = true;
-                        video.playsInline = true;
-                        video.play();
-                        //  window.URL.revokeObjectURL(url);
-                    });
-                }
-            } else {
-                reject(0);
+            if (!videoFile) {
+                reject(new Error('missing file'));
+                return;
             }
+
+            if (!videoFile.type.match('video')) {
+                reject(new Error('file not valid'));
+                return;
+            }
+
+            importFileandPreview(videoFile).then((url) => {
+                const video = document.createElement('video');
+
+                const cleanup = () => {
+                    video.removeEventListener('loadedmetadata', onLoadedMetadata);
+                    video.removeEventListener('error', onError);
+                    try { video.pause(); } catch (e) { }
+                    try { URL.revokeObjectURL(url); } catch (e) { }
+                };
+
+                const onLoadedMetadata = () => {
+                    const duration = Number.isFinite(video.duration) ? video.duration : 0;
+                    cleanup();
+                    resolve(duration);
+                };
+
+                const onError = () => {
+                    cleanup();
+                    reject(new Error(`Failed to load video metadata for ${videoFile.name}`));
+                };
+
+                video.addEventListener('loadedmetadata', onLoadedMetadata);
+                video.addEventListener('error', onError);
+                video.preload = 'metadata';
+                video.src = url;
+                video.muted = true;
+                video.playsInline = true;
+            }).catch(reject);
         });
     };
 
@@ -577,7 +689,6 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
 
             <div className="upload-input-row">
                 <input type="file" multiple onChange={handleFiles} />
-
             </div>
 
             {files.length > 0 && (
@@ -587,21 +698,24 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                         {files.map((f, i) => {
                             const status = uploadStatuses[i] || 'idle';
                             let icon = '';
-                            if (status === 'uploading') icon = '⏳';
-                            else if (status === 'done') icon = '✅';
-                            else if (status === 'error') icon = '❌';
+                            if (status === 'uploading') icon = '\u23F3';
+                            else if (status === 'done') icon = '\u2705';
+                            else if (status === 'duplicate') icon = 'D';
+                            else if (status === 'error') icon = '\u274C';
                             const display = truncateName(f.name, 20);
+
                             return (
                                 <li key={i} style={{ alignContent: 'center', gap: 8, width: '100%' }} title={f.name}>
                                     <span style={{ width: 'auto' }}>{display} ({Math.round(f.size / 1024)} KB)</span>
-                                    <span style={{ width: 20 }}>{icon}</span>
+                                    <span style={{ width: 20, color: status === 'duplicate' ? '#b26a00' : 'inherit', fontWeight: status === 'duplicate' ? 700 : 400 }}>{icon}</span>
                                 </li>
                             );
                         })}
                     </ul>
                 </div>
             )}
-            <div className="upload-actions" style={{ margin: 16 , width: '100%'}}>
+
+            <div className="upload-actions" style={{ margin: 16, width: '100%' }}>
                 <div style={{ display: 'flex', gap: 12 }}>
                     <button className="btn-upload" onClick={handleUpload} disabled={files.length === 0 || isUploading} style={{ width: 200 }}>
                         Subir
