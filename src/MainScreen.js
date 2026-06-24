@@ -69,6 +69,7 @@ const MainScreen = ({ user, signOut }) => {
   const [folderError, setFolderError] = useState(null);
   const [shareState, setShareState] = useState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
   const [deleteFolderState, setDeleteFolderState] = useState({ open: false, busy: false, error: null });
+  const [shareLinkModal, setShareLinkModal] = useState({ open: false, url: '', copied: false });
   const [backBtnSize, setBackBtnSize] = useState(40);
 
   useEffect(() => {
@@ -97,6 +98,16 @@ const MainScreen = ({ user, signOut }) => {
   const getPublicShareUrl = (publicUrlPath) => {
     if (!publicUrlPath) return '';
     return `${window.location.origin}${publicUrlPath}`;
+  };
+
+  const openShareLinkModal = (publicUrlPath) => {
+    const url = getPublicShareUrl(publicUrlPath);
+    if (!url) return;
+    setShareLinkModal({ open: true, url, copied: false });
+  };
+
+  const closeShareLinkModal = () => {
+    setShareLinkModal({ open: false, url: '', copied: false });
   };
 
   const listAllItemsForPath = async (path) => {
@@ -232,6 +243,7 @@ const MainScreen = ({ user, signOut }) => {
         shareId: result.shareId || null,
         publicUrlPath: result.publicUrlPath || '',
       });
+      openShareLinkModal(result.publicUrlPath || '');
     } catch (error) {
       console.error('Error publishing folder:', error);
       setShareState((prev) => ({ ...prev, loading: false }));
@@ -257,8 +269,24 @@ const MainScreen = ({ user, signOut }) => {
 
     try {
       await navigator.clipboard.writeText(url);
+      setShareLinkModal((prev) => ({
+        open: true,
+        url,
+        copied: true,
+      }));
     } catch (error) {
       console.error('Error copying share link:', error);
+    }
+  };
+
+  const handleCopyShareLinkFromModal = async () => {
+    if (!shareLinkModal.url) return;
+
+    try {
+      await navigator.clipboard.writeText(shareLinkModal.url);
+      setShareLinkModal((prev) => ({ ...prev, copied: true }));
+    } catch (error) {
+      console.error('Error copying share link from modal:', error);
     }
   };
 
@@ -547,24 +575,11 @@ const MainScreen = ({ user, signOut }) => {
                 role="menuitem"
                 onClick={async () => {
                   setMenuOpen(false);
-                  await handleCopyShareLink();
+                  openShareLinkModal(shareState.publicUrlPath);
                 }}
               >
                 <span aria-hidden="true" style={{ marginRight: 8 }}>{'\u{1F517}'}</span>Copiar enlace
               </button>
-            )}
-            {currentFolder && shareState.shared && (
-              <a
-                className="fab-menu-item"
-                role="menuitem"
-                href={getPublicShareUrl(shareState.publicUrlPath)}
-                target="_blank"
-                rel="noreferrer"
-                onClick={() => setMenuOpen(false)}
-                style={{ textDecoration: 'none' }}
-              >
-                <span aria-hidden="true" style={{ marginRight: 8 }}>{'\u{1F517}'}</span>Abrir enlace publico
-              </a>
             )}
             <button className="fab-menu-item" role="menuitem" onClick={() => { if (typeof signOut === 'function') signOut(); setMenuOpen(false); }}>
               <span aria-hidden="true" style={{ marginRight: 8 }}>{'\u{1F6AA}'}</span>Cerrar sesion
@@ -589,6 +604,34 @@ const MainScreen = ({ user, signOut }) => {
                 <button onClick={handleDeleteFolder} style={{ padding: '8px 12px', borderRadius: 8, background: '#e53935', color: '#fff', border: 'none' }}>Eliminar carpeta</button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {shareLinkModal.open && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10001 }} role="dialog" aria-modal="true">
+          <div style={{ background: '#fff', padding: 20, borderRadius: 8, width: '90%', maxWidth: 560, boxShadow: '0 6px 24px rgba(0,0,0,0.3)' }}>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Enlace compartido</div>
+            <div style={{ marginBottom: 12 }}>
+              Esta es la URL publica de la carpeta:
+            </div>
+            <input
+              readOnly
+              value={shareLinkModal.url}
+              onFocus={(event) => event.target.select()}
+              style={{ width: '100%', padding: '10px 12px', boxSizing: 'border-box', borderRadius: 8, marginBottom: 12 }}
+            />
+            {shareLinkModal.copied && (
+              <div style={{ color: '#2e7d32', marginBottom: 12 }}>Enlace copiado al portapapeles.</div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 20 }}>
+              <button onClick={handleCopyShareLinkFromModal} style={{ padding: '8px 12px', borderRadius: 8 }}>
+                Copiar
+              </button>
+              <button onClick={closeShareLinkModal} style={{ padding: '8px 12px', borderRadius: 8 }}>
+                Aceptar
+              </button>
+            </div>
           </div>
         </div>
       )}
