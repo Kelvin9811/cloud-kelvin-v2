@@ -1,6 +1,18 @@
 {
   "version": 1,
   "paths": {
+    "/shares/{proxy+}": {
+      "lambdaFunction": "AdminQueriesaf84bc40",
+      "permissions": {
+        "setting": "private",
+        "auth": [
+          "create",
+          "read",
+          "update",
+          "delete"
+        ]
+      }
+    },
     "/public/{proxy+}": {
       "lambdaFunction": "AdminQueriesaf84bc40",
       "permissions": {
