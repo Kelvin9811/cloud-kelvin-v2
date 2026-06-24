@@ -460,7 +460,7 @@ app.post('/shares/unpublish', async (req, res, next) => {
   }
 });
 
-app.get('/public/shares/:shareId', async (req, res, next) => {
+app.get(['/public/shares/:shareId', '/shares/:shareId'], async (req, res, next) => {
   try {
     const record = await getShareRecordById(req.params.shareId);
     if (!record?.shareId) {
@@ -487,7 +487,7 @@ app.get('/public/shares/:shareId', async (req, res, next) => {
   }
 });
 
-app.get('/public/shares/:shareId/items/:publicId/original', async (req, res, next) => {
+app.get(['/public/shares/:shareId/items/:publicId/original', '/shares/:shareId/items/:publicId/original'], async (req, res, next) => {
   try {
     const record = await getShareRecordById(req.params.shareId);
     if (!record?.shareId) {

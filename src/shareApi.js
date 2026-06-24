@@ -2,7 +2,9 @@ import awsExports from './aws-exports';
 import { fetchAuthSession } from 'aws-amplify/auth';
 
 const apiConfig = awsExports.aws_cloud_logic_custom?.find((entry) => entry.name === 'AdminQueries');
+const publicApiConfig = awsExports.aws_cloud_logic_custom?.find((entry) => entry.name === 'PublicShares');
 const apiRoot = apiConfig?.endpoint || '';
+const publicApiRoot = publicApiConfig?.endpoint || apiRoot;
 
 const maskToken = (token) => {
     if (!token) return null;
@@ -52,6 +54,10 @@ const buildUrl = (path, query = null) => {
         });
     }
     return url.toString();
+};
+
+const buildPublicUrl = (path) => {
+    return new URL(`${publicApiRoot}${path}`).toString();
 };
 
 const getAuthHeaders = async () => {
@@ -150,14 +156,18 @@ export const unpublishShare = async ({ userId, folderName }) => {
 };
 
 export const getPublicShare = async (shareId) => {
-    const response = await fetch(buildUrl(`/public/shares/${shareId}`), {
+    const path = publicApiConfig ? `/shares/${shareId}` : `/public/shares/${shareId}`;
+    const response = await fetch(buildPublicUrl(path), {
         method: 'GET',
     });
     return handleJsonResponse(response);
 };
 
 export const getPublicOriginal = async (shareId, publicId) => {
-    const response = await fetch(buildUrl(`/public/shares/${shareId}/items/${publicId}/original`), {
+    const path = publicApiConfig
+        ? `/shares/${shareId}/items/${publicId}/original`
+        : `/public/shares/${shareId}/items/${publicId}/original`;
+    const response = await fetch(buildPublicUrl(path), {
         method: 'GET',
     });
     return handleJsonResponse(response);

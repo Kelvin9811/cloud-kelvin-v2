@@ -19,11 +19,12 @@
       "function": {
         "AdminQueriesaf84bc40": {
           "deploymentBucketName": "amplify-cloudkelvinv2-dev-e2bbe-deployment",
-          "s3Key": "amplify-builds/AdminQueriesaf84bc40-79424930394e4435542b-build.zip"
+          "s3Key": "amplify-builds/AdminQueriesaf84bc40-636a2f33414c4c634264-build.zip"
         }
       },
       "api": {
-        "AdminQueries": {}
+        "AdminQueries": {},
+        "PublicShares": {}
       },
       "storage": {
         "s3b92528f2": {}
