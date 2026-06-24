@@ -43,9 +43,77 @@ app.use((req, res, next) => {
 });
 
 const allowedGroup = process.env.GROUP;
-const bucketName = process.env.STORAGE_BUCKET_NAME;
-const bucketRegion = process.env.STORAGE_BUCKET_REGION || process.env.AWS_REGION;
+const KNOWN_BUCKET_NAME_FALLBACK = 'cloudkelvinv26ae35849a4104091a533f1be1213b752e2bbe-dev';
+
+const isValidAwsRegion = (value) => typeof value === 'string' && /^[a-z]{2}(-gov)?-[a-z]+-\d+$/.test(value.trim());
+const isValidS3BucketName = (value) =>
+  typeof value === 'string' &&
+  /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(value.trim()) &&
+  !/BucketName$/i.test(value.trim()) &&
+  !/^storages[0-9a-z]+/i.test(value.trim());
+
+const resolveBucketName = () => {
+  const candidates = [
+    process.env.STORAGE_BUCKET_NAME,
+    process.env.AWS_USER_FILES_S3_BUCKET,
+    process.env.aws_user_files_s3_bucket,
+    KNOWN_BUCKET_NAME_FALLBACK,
+  ];
+
+  const resolved = candidates.find((candidate) => isValidS3BucketName(candidate));
+
+  if (!resolved) {
+    console.warn('[shares] Could not resolve a valid S3 bucket name from environment', {
+      storageBucketName: process.env.STORAGE_BUCKET_NAME || null,
+      awsUserFilesBucket: process.env.AWS_USER_FILES_S3_BUCKET || null,
+      awsUserFilesBucketLower: process.env.aws_user_files_s3_bucket || null,
+      fallbackBucket: KNOWN_BUCKET_NAME_FALLBACK,
+    });
+    return KNOWN_BUCKET_NAME_FALLBACK;
+  }
+
+  if (resolved !== process.env.STORAGE_BUCKET_NAME) {
+    console.warn('[shares] Using fallback S3 bucket name', {
+      storageBucketName: process.env.STORAGE_BUCKET_NAME || null,
+      resolvedBucketName: resolved,
+    });
+  }
+
+  return resolved.trim();
+};
+
+const resolveBucketRegion = () => {
+  const storageRegion = process.env.STORAGE_BUCKET_REGION;
+  const awsRegion = process.env.AWS_REGION;
+
+  if (isValidAwsRegion(storageRegion)) {
+    return storageRegion.trim();
+  }
+
+  if (storageRegion) {
+    console.warn('[shares] Ignoring invalid STORAGE_BUCKET_REGION value', {
+      rawValue: storageRegion,
+      fallbackRegion: awsRegion || 'us-east-1',
+    });
+  }
+
+  if (isValidAwsRegion(awsRegion)) {
+    return awsRegion.trim();
+  }
+
+  return 'us-east-1';
+};
+
+const bucketName = resolveBucketName();
+const bucketRegion = resolveBucketRegion();
 const s3 = new S3Client({ region: bucketRegion });
+
+console.log('[shares] S3 client configuration', {
+  bucketName,
+  storageBucketRegion: process.env.STORAGE_BUCKET_REGION || null,
+  awsRegion: process.env.AWS_REGION || null,
+  resolvedBucketRegion: bucketRegion,
+});
 
 const SHARES_ROOT = 'system/shares';
 const SHARE_INDEX_BY_FOLDER_ROOT = `${SHARES_ROOT}/by-folder`;
@@ -132,6 +200,12 @@ const listAllObjects = async (prefix) => {
   let continuationToken = undefined;
 
   do {
+    console.log('[shares] Listing objects', {
+      bucketName,
+      bucketRegion,
+      prefix,
+      continuationToken: continuationToken || null,
+    });
     const response = await s3.send(new ListObjectsV2Command({
       Bucket: bucketName,
       Prefix: prefix,
@@ -146,6 +220,7 @@ const listAllObjects = async (prefix) => {
 
 const readJsonObject = async (key) => {
   try {
+    console.log('[shares] Reading JSON object', { bucketName, bucketRegion, key });
     const response = await s3.send(new GetObjectCommand({
       Bucket: bucketName,
       Key: key,
@@ -160,6 +235,7 @@ const readJsonObject = async (key) => {
 };
 
 const putJsonObject = async (key, value) => {
+  console.log('[shares] Writing JSON object', { bucketName, bucketRegion, key });
   await s3.send(new PutObjectCommand({
     Bucket: bucketName,
     Key: key,
@@ -170,6 +246,7 @@ const putJsonObject = async (key, value) => {
 
 const deleteObjectIfExists = async (key) => {
   try {
+    console.log('[shares] Deleting object if exists', { bucketName, bucketRegion, key });
     await s3.send(new DeleteObjectCommand({
       Bucket: bucketName,
       Key: key,
@@ -180,6 +257,7 @@ const deleteObjectIfExists = async (key) => {
 };
 
 const buildSignedObjectUrl = async (key, expiresIn = 3600) => {
+  console.log('[shares] Building signed URL', { bucketName, bucketRegion, key, expiresIn });
   return getSignedUrl(s3, new GetObjectCommand({
     Bucket: bucketName,
     Key: key,
@@ -230,6 +308,14 @@ const publishFolderShare = async (userId, folderName) => {
       Key: publicPreviewPath,
       MetadataDirective: 'COPY',
     }));
+    console.log('[shares] Copied preview to public area', {
+      bucketName,
+      bucketRegion,
+      previewPath,
+      publicPreviewPath,
+      shareId,
+      publicId,
+    });
 
     items.push({
       publicId,

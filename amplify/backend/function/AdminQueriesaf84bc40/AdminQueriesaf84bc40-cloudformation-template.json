@@ -67,11 +67,9 @@
               "Ref": "env"
             },
             "GROUP": "admin",
-            "STORAGE_BUCKET_NAME": {
-              "Ref": "storages3b92528f2BucketName"
-            },
+            "STORAGE_BUCKET_NAME": "cloudkelvinv26ae35849a4104091a533f1be1213b752e2bbe-dev",
             "STORAGE_BUCKET_REGION": {
-              "Ref": "storages3b92528f2Region"
+              "Ref": "AWS::Region"
             },
             "USERPOOL": {
               "Ref": "authcloudkelvinv27a3557397a355739UserPoolId"
