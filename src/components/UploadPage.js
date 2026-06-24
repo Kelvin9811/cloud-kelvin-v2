@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import './UploadPage.css';
-import { uploadData, getUrl, list } from '@aws-amplify/storage';
+import { getUrl, list, remove, uploadData } from '@aws-amplify/storage';
 import PdfLogo from '../images/pdf_logo.png';
 import WordLogo from '../images/word_logo.png';
 import ExcelLogo from '../images/excel_logo.png';
@@ -10,11 +10,29 @@ import CodeLogo from '../images/code_logo.png';
 import AudioLogo from '../images/audio_logo.png';
 import FileLogo from '../images/file_logo.png';
 
-const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
+const EMPTY_SUMMARY = {
+    total: 0,
+    processed: 0,
+    uploaded: 0,
+    duplicates: 0,
+    errors: 0,
+    canceled: 0,
+    finished: false,
+    canceledByUser: false,
+};
+
+const UploadPage = ({ onUpload, onBack, userId = '', currentFolder = '' }) => {
     const [files, setFiles] = useState([]);
     const [isUploading, setIsUploading] = useState(false);
-    const [uploadStatuses, setUploadStatuses] = useState({});
+    const [cancelRequested, setCancelRequested] = useState(false);
+    const uploadStatusesRef = useRef({});
     const [batchSize] = useState(10);
+    const [uploadSummary, setUploadSummary] = useState({ ...EMPTY_SUMMARY });
+    const [failedFiles, setFailedFiles] = useState([]);
+    const [currentBatch, setCurrentBatch] = useState({ current: 0, total: 0 });
+
+    const fileInputRef = useRef(null);
+    const cancelRequestedRef = useRef(false);
 
     const withTimeout = (promise, ms, label) =>
         new Promise((resolve, reject) => {
@@ -31,9 +49,7 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
         });
 
     const normalizeFileName = (name = '') => name.trim().replace(/\s+/g, '_').toLowerCase();
-
     const getBasePath = () => currentFolder ? `uploads/users/${userId}/${currentFolder}` : `uploads/users/${userId}`;
-
     const getOriginalListPath = () => `${getBasePath()}/original/`;
 
     const extractComparableOriginalName = (path = '') => {
@@ -59,37 +75,29 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
         return allItems;
     };
 
+    const resetUploadState = () => {
+        cancelRequestedRef.current = false;
+        setCancelRequested(false);
+        uploadStatusesRef.current = {};
+        setUploadSummary({ ...EMPTY_SUMMARY });
+        setFailedFiles([]);
+        setCurrentBatch({ current: 0, total: 0 });
+    };
+
     const handleFiles = (e) => {
         const selectedFiles = Array.from(e.target.files || []);
         setFiles(selectedFiles);
-        setUploadStatuses({});
-    };
-
-    const truncateName = (name, max = 40) => {
-        if (!name) return '';
-        if (name.length <= max) return name;
-        return name.slice(0, max - 3) + '...';
-    };
-
-    const handleUpload = async () => {
-        if (files.length === 0) return;
-
-        setIsUploading(true);
-        try {
-            if (typeof onUpload === 'function') {
-                onUpload(files);
-            }
-            await uploadFiles(files);
-        } finally {
-            setIsUploading(false);
-        }
+        resetUploadState();
     };
 
     const handleClearAll = () => {
         console.log('Clearing selected files and upload statuses');
         setFiles([]);
-        setUploadStatuses({});
         setIsUploading(false);
+        resetUploadState();
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
     };
 
     const formatFileDate = (ts) => {
@@ -268,6 +276,53 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
         return duplicateNames;
     };
 
+    const registerOutcome = ({ index, status, fileName, reason }) => {
+        uploadStatusesRef.current = { ...uploadStatusesRef.current, [index]: status };
+        setUploadSummary((prev) => ({
+            ...prev,
+            processed: prev.processed + 1,
+            uploaded: prev.uploaded + (status === 'done' ? 1 : 0),
+            duplicates: prev.duplicates + (status === 'duplicate' ? 1 : 0),
+            errors: prev.errors + (status === 'error' ? 1 : 0),
+            canceled: prev.canceled + (status === 'canceled' ? 1 : 0),
+        }));
+
+        if (status !== 'done' && reason) {
+            setFailedFiles((prev) => [...prev, { name: fileName, reason }]);
+        }
+    };
+
+    const markRemainingFilesAsCanceled = (pendingFiles, startIndex) => {
+        if (!pendingFiles.length) return;
+
+        const pendingStatuses = {};
+        pendingFiles.forEach((file, offset) => {
+            pendingStatuses[startIndex + offset] = 'canceled';
+        });
+
+        uploadStatusesRef.current = { ...uploadStatusesRef.current, ...pendingStatuses };
+        setUploadSummary((prev) => ({
+            ...prev,
+            processed: prev.processed + pendingFiles.length,
+            canceled: prev.canceled + pendingFiles.length,
+        }));
+        setFailedFiles((prev) => [
+            ...prev,
+            ...pendingFiles.map((file) => ({
+                name: file.name,
+                reason: 'Cancelado por el usuario',
+            })),
+        ]);
+    };
+
+    const cleanupPartialUpload = async (previewPath, finalPath) => {
+        await Promise.allSettled(
+            [previewPath, finalPath]
+                .filter(Boolean)
+                .map((path) => remove({ path }))
+        );
+    };
+
     const uploadFiles = async (selectedFiles) => {
         if (!selectedFiles || selectedFiles.length === 0) return [];
 
@@ -275,16 +330,32 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
         const toUpload = Array.from(selectedFiles);
         const safeBatchSize = Math.max(1, Number(batchSize) || 10);
         const duplicateNames = await getDuplicateNameSet(toUpload);
+        const totalBatches = Math.max(1, Math.ceil(toUpload.length / safeBatchSize));
 
         const uploadSingle = async (file, idx) => {
+            if (cancelRequestedRef.current) {
+                registerOutcome({
+                    index: idx,
+                    status: 'canceled',
+                    fileName: file.name,
+                    reason: 'Cancelado por el usuario',
+                });
+                return { skipped: true, reason: 'canceled', name: file.name };
+            }
+
             const normalizedName = normalizeFileName(file.name);
             if (duplicateNames.has(normalizedName)) {
                 console.warn('Skipping duplicate file:', file.name);
-                setUploadStatuses((s) => ({ ...s, [idx]: 'duplicate' }));
+                registerOutcome({
+                    index: idx,
+                    status: 'duplicate',
+                    fileName: file.name,
+                    reason: 'Duplicado en la seleccion o ya existe en la carpeta',
+                });
                 return { skipped: true, reason: 'duplicate', name: file.name };
             }
 
-            setUploadStatuses((s) => ({ ...s, [idx]: 'uploading' }));
+            uploadStatusesRef.current = { ...uploadStatusesRef.current, [idx]: 'uploading' };
 
             const uuid = crypto.randomUUID();
             const cleanName = file.name.replace(/\s+/g, '_');
@@ -306,7 +377,6 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
             } catch (previewError) {
                 console.warn('Preview generation failed or timed out, continuing without preview for', file.name, previewError);
             }
-            console.log('Preview raw for file', file.name, ':', previewBlob);
 
             const dataURLtoBlob = (dataurl) => {
                 const arr = dataurl.split(',');
@@ -327,16 +397,25 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
             if (typeof previewToUpload === 'string' && previewToUpload.startsWith('data:')) {
                 try {
                     previewToUpload = dataURLtoBlob(previewToUpload);
-                } catch (e) {
-                    console.warn('Failed to convert dataURL to Blob for preview, will skip preview upload', e);
+                } catch (error) {
+                    console.warn('Failed to convert dataURL to Blob for preview, will skip preview upload', error);
                     previewToUpload = null;
                 }
             }
 
-            console.log('Preview ready for upload for file:', file.name, previewToUpload);
+            let previewUploaded = false;
 
             try {
-                console.log('Uploading file.type:', file.type);
+                if (cancelRequestedRef.current) {
+                    registerOutcome({
+                        index: idx,
+                        status: 'canceled',
+                        fileName: file.name,
+                        reason: 'Cancelado por el usuario',
+                    });
+                    return { skipped: true, reason: 'canceled', name: file.name };
+                }
+
                 if (previewToUpload) {
                     await withTimeout(uploadData({
                         path: previewPath,
@@ -352,12 +431,21 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                             dateSource: preferredDateSource
                         }
                     }).result, 120000, `preview upload for ${file.name}`);
-                } else {
-                    console.log('No preview to upload for', file.name);
+                    previewUploaded = true;
                 }
 
-                console.log('Uploading final file to path:', finalPath);
-                console.log('Final metadata creationDate:', preferredDateIso);
+                if (cancelRequestedRef.current) {
+                    if (previewUploaded) {
+                        await cleanupPartialUpload(previewPath, null);
+                    }
+                    registerOutcome({
+                        index: idx,
+                        status: 'canceled',
+                        fileName: file.name,
+                        reason: 'Cancelado por el usuario',
+                    });
+                    return { skipped: true, reason: 'canceled', name: file.name };
+                }
 
                 await withTimeout(uploadData({
                     path: finalPath,
@@ -375,10 +463,20 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                 }).result, 300000, `final upload for ${file.name}`);
 
                 console.log('File uploaded successfully:', file.name);
-                setUploadStatuses((s) => ({ ...s, [idx]: 'done' }));
+                registerOutcome({
+                    index: idx,
+                    status: 'done',
+                    fileName: file.name,
+                });
             } catch (error) {
                 console.error('Error uploading file:', error);
-                setUploadStatuses((s) => ({ ...s, [idx]: 'error' }));
+                await cleanupPartialUpload(previewUploaded ? previewPath : null, finalPath);
+                registerOutcome({
+                    index: idx,
+                    status: 'error',
+                    fileName: file.name,
+                    reason: error?.message || 'Error al subir el archivo',
+                });
                 return { skipped: true, reason: 'error', name: file.name, error };
             }
 
@@ -411,7 +509,15 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
         const total = toUpload.length;
         for (let start = 0; start < total; start += safeBatchSize) {
             const batch = toUpload.slice(start, start + safeBatchSize);
-            console.log(`Starting upload batch ${Math.floor(start / safeBatchSize) + 1} (files ${start}..${Math.min(start + safeBatchSize - 1, total - 1)})`);
+            const batchNumber = Math.floor(start / safeBatchSize) + 1;
+            setCurrentBatch({ current: batchNumber, total: totalBatches });
+
+            if (cancelRequestedRef.current) {
+                markRemainingFilesAsCanceled(batch, start);
+                break;
+            }
+
+            console.log(`Starting upload batch ${batchNumber} (files ${start}..${Math.min(start + safeBatchSize - 1, total - 1)})`);
 
             const batchResults = await Promise.allSettled(
                 batch.map((file, indexInBatch) => uploadSingle(file, start + indexInBatch))
@@ -424,7 +530,14 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                     console.error('Batch item failed unexpectedly:', result.reason);
                 }
             });
-            console.log(`Finished upload batch ${Math.floor(start / safeBatchSize) + 1}`);
+
+            console.log(`Finished upload batch ${batchNumber}`);
+
+            if (cancelRequestedRef.current) {
+                const nextStart = start + batch.length;
+                markRemainingFilesAsCanceled(toUpload.slice(nextStart), nextStart);
+                break;
+            }
         }
 
         return results;
@@ -543,19 +656,13 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                 Math.min(safeDuration, Math.floor((index * safeDuration) / safeCount))
             );
 
-            console.log('duration', duration);
-            console.log('fractions', fractions);
-
             const thumbnailResults = await Promise.allSettled(
                 fractions.map((time) => withTimeout(getVideoThumbnail(videoFile, time), 20000, `video thumbnail for ${videoFile.name} at ${time}s`))
             );
 
-            const thumbnails = thumbnailResults
+            return thumbnailResults
                 .filter((result) => result.status === 'fulfilled' && result.value)
                 .map((result) => result.value);
-
-            console.log('thumbnail', thumbnails);
-            return thumbnails;
         } catch (error) {
             console.warn('Failed to generate video thumbnails for', videoFile.name, error);
             return [];
@@ -577,8 +684,8 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                     video.removeEventListener('loadeddata', onLoadedData);
                     video.removeEventListener('seeked', onSeeked);
                     video.removeEventListener('error', onError);
-                    try { video.pause(); } catch (e) { }
-                    try { URL.revokeObjectURL(urlOfFile); } catch (e) { }
+                    try { video.pause(); } catch (error) { }
+                    try { URL.revokeObjectURL(urlOfFile); } catch (error) { }
                 };
 
                 const finish = (value) => {
@@ -658,8 +765,8 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
                 const cleanup = () => {
                     video.removeEventListener('loadedmetadata', onLoadedMetadata);
                     video.removeEventListener('error', onError);
-                    try { video.pause(); } catch (e) { }
-                    try { URL.revokeObjectURL(url); } catch (e) { }
+                    try { video.pause(); } catch (error) { }
+                    try { URL.revokeObjectURL(url); } catch (error) { }
                 };
 
                 const onLoadedMetadata = () => {
@@ -683,46 +790,163 @@ const UploadPage = ({ onUpload, userId = '', currentFolder = '' }) => {
         });
     };
 
+    const handleUpload = async () => {
+        if (files.length === 0 || isUploading) return;
+
+        cancelRequestedRef.current = false;
+        setCancelRequested(false);
+        uploadStatusesRef.current = {};
+        setFailedFiles([]);
+        setCurrentBatch({ current: 0, total: Math.max(1, Math.ceil(files.length / Math.max(1, Number(batchSize) || 10))) });
+        setUploadSummary({
+            total: files.length,
+            processed: 0,
+            uploaded: 0,
+            duplicates: 0,
+            errors: 0,
+            canceled: 0,
+            finished: false,
+            canceledByUser: false,
+        });
+
+        setIsUploading(true);
+        try {
+            if (typeof onUpload === 'function') {
+                onUpload(files);
+            }
+            await uploadFiles(files);
+        } finally {
+            setIsUploading(false);
+            setUploadSummary((prev) => ({
+                ...prev,
+                finished: true,
+                canceledByUser: cancelRequestedRef.current,
+            }));
+        }
+    };
+
+    const handleCancelUpload = () => {
+        if (!isUploading) return;
+        cancelRequestedRef.current = true;
+        setCancelRequested(true);
+    };
+
+    const totalSelectedSizeMb = (files.reduce((sum, file) => sum + (file.size || 0), 0) / (1024 * 1024)).toFixed(2);
+    const progressPercent = uploadSummary.total > 0
+        ? Math.round((uploadSummary.processed / uploadSummary.total) * 100)
+        : 0;
+    const shouldShowProgress = files.length > 0;
+    const shouldShowBackButton = !isUploading && uploadSummary.finished;
+
     return (
         <div className="upload-page card">
             <p className="muted">Selecciona uno o varios archivos para subirlos.</p>
 
             <div className="upload-input-row">
-                <input type="file" multiple onChange={handleFiles} />
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    onChange={handleFiles}
+                    disabled={isUploading}
+                />
             </div>
 
-            {files.length > 0 && (
-                <div className="upload-list">
-                    <h4>Archivos seleccionados:</h4>
-                    <ul style={{ listStyleType: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {files.map((f, i) => {
-                            const status = uploadStatuses[i] || 'idle';
-                            let icon = '';
-                            if (status === 'uploading') icon = '\u23F3';
-                            else if (status === 'done') icon = '\u2705';
-                            else if (status === 'duplicate') icon = 'D';
-                            else if (status === 'error') icon = '\u274C';
-                            const display = truncateName(f.name, 20);
+            {shouldShowProgress && (
+                <div className="upload-progress-panel">
+                    <div className="upload-progress-top">
+                        <div>
+                            <strong>{files.length}</strong> archivos seleccionados
+                        </div>
+                        <div>{totalSelectedSizeMb} MB</div>
+                    </div>
 
-                            return (
-                                <li key={i} style={{ alignContent: 'center', gap: 8, width: '100%' }} title={f.name}>
-                                    <span style={{ width: 'auto' }}>{display} ({Math.round(f.size / 1024)} KB)</span>
-                                    <span style={{ width: 20, color: status === 'duplicate' ? '#b26a00' : 'inherit', fontWeight: status === 'duplicate' ? 700 : 400 }}>{icon}</span>
-                                </li>
-                            );
-                        })}
+                    <div className="upload-progress-top">
+                        <div>
+                            Progreso: <strong>{uploadSummary.processed}/{uploadSummary.total || files.length}</strong>
+                        </div>
+                        <div>{progressPercent}%</div>
+                    </div>
+
+                    <div className="upload-progress-bar">
+                        <div
+                            className="upload-progress-bar-fill"
+                            style={{ width: `${progressPercent}%` }}
+                        />
+                    </div>
+
+                    {(isUploading || uploadSummary.finished) && (
+                        <div className="upload-progress-meta">
+                            <span>Cargados: {uploadSummary.uploaded}</span>
+                            <span>Duplicados: {uploadSummary.duplicates}</span>
+                            <span>Errores: {uploadSummary.errors}</span>
+                            <span>Cancelados: {uploadSummary.canceled}</span>
+                        </div>
+                    )}
+
+                    {isUploading && (
+                        <div className="upload-batch-indicator">
+                            {cancelRequested
+                                ? 'Cancelando al terminar el lote actual...'
+                                : `Lote ${currentBatch.current || 1} de ${currentBatch.total || 1}`}
+                        </div>
+                    )}
+
+                    {uploadSummary.finished && (
+                        <div className="upload-finish-message">
+                            {uploadSummary.canceledByUser
+                                ? 'La carga fue cancelada.'
+                                : 'La carga finalizo.'}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {uploadSummary.finished && failedFiles.length > 0 && (
+                <div className="upload-report">
+                    <h4>Archivos no cargados</h4>
+                    <ul>
+                        {failedFiles.map((file, index) => (
+                            <li key={`${file.name}-${index}`}>
+                                <strong>{file.name}</strong>: {file.reason}
+                            </li>
+                        ))}
                     </ul>
                 </div>
             )}
 
             <div className="upload-actions" style={{ margin: 16, width: '100%' }}>
-                <div style={{ display: 'flex', gap: 12 }}>
-                    <button className="btn-upload" onClick={handleUpload} disabled={files.length === 0 || isUploading} style={{ width: 200 }}>
-                        Subir
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                    <button
+                        className="btn-upload"
+                        onClick={isUploading ? handleCancelUpload : handleUpload}
+                        disabled={files.length === 0 || (isUploading && cancelRequested)}
+                        style={{ width: 200 }}
+                    >
+                        {isUploading ? (cancelRequested ? 'Cancelando...' : 'Cancelar') : 'Subir'}
                     </button>
-                    <button className="btn-clear" onClick={handleClearAll} disabled={files.length === 0 || isUploading} style={{ width: 120 }} title="Limpiar archivos seleccionados">
+                    <button
+                        className="btn-clear"
+                        onClick={handleClearAll}
+                        disabled={isUploading || files.length === 0}
+                        style={{ width: 120 }}
+                        title="Limpiar archivos seleccionados"
+                    >
                         Limpiar
                     </button>
+                    {shouldShowBackButton && (
+                        <button
+                            className="btn-clear"
+                            onClick={() => {
+                                if (typeof onBack === 'function') {
+                                    onBack();
+                                }
+                            }}
+                            style={{ width: 140 }}
+                        >
+                            Regresar
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

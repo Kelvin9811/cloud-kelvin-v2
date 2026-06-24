@@ -60,6 +60,15 @@
   }
 }
 
+@keyframes spin-public-link {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Nuevos estilos para el contenido principal */
 .main-content {
   padding-top: 12px;

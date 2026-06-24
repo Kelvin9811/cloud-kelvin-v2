@@ -56,8 +56,16 @@ const buildUrl = (path, query = null) => {
     return url.toString();
 };
 
-const buildPublicUrl = (path) => {
-    return new URL(`${publicApiRoot}${path}`).toString();
+const buildPublicUrl = (path, query = null) => {
+    const url = new URL(`${publicApiRoot}${path}`);
+    if (query) {
+        Object.entries(query).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== '') {
+                url.searchParams.set(key, value);
+            }
+        });
+    }
+    return url.toString();
 };
 
 const getAuthHeaders = async () => {
@@ -155,15 +163,19 @@ export const unpublishShare = async ({ userId, folderName }) => {
     return handleJsonResponse(response);
 };
 
-export const getPublicShare = async (shareId) => {
+export const getPublicShare = async (shareId, { pageSize, nextToken } = {}) => {
     const path = publicApiConfig ? `/shares/${shareId}` : `/public/shares/${shareId}`;
+    const url = buildPublicUrl(path, { pageSize, nextToken });
     console.log('[shareApi] Sending getPublicShare', {
         path,
+        url,
         publicApiRoot,
         usingDedicatedPublicApi: Boolean(publicApiConfig),
         shareId,
+        pageSize,
+        nextToken,
     });
-    const response = await fetch(buildPublicUrl(path), {
+    const response = await fetch(url, {
         method: 'GET',
     });
     return handleJsonResponse(response);

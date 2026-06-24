@@ -264,6 +264,22 @@ const buildSignedObjectUrl = async (key, expiresIn = 3600) => {
   }), { expiresIn });
 };
 
+const parsePageSize = (value, fallback = 20, max = 60) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.min(parsed, max);
+};
+
+const parseOffsetToken = (value) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 0;
+  }
+  return parsed;
+};
+
 const getFolderShareRecord = async (userId, folderName) => {
   return readJsonObject(getShareIndexByFolderKey(userId, folderName));
 };
@@ -469,17 +485,36 @@ app.get(['/public/shares/:shareId', '/shares/:shareId'], async (req, res, next) 
       throw err;
     }
 
-    const items = await Promise.all((record.items || []).map(async (item) => ({
+    const allItems = record.items || [];
+    const pageSize = parsePageSize(req.query.pageSize);
+    const offset = parseOffsetToken(req.query.nextToken);
+    const pageItems = allItems.slice(offset, offset + pageSize);
+
+    console.log('[shares] Public share page request', {
+      shareId: record.shareId,
+      folderName: record.folderName,
+      totalItems: allItems.length,
+      pageSize,
+      offset,
+      returnedItems: pageItems.length,
+    });
+
+    const items = await Promise.all(pageItems.map(async (item) => ({
       publicId: item.publicId,
       originalName: item.originalName,
       previewUrl: await buildSignedObjectUrl(item.publicPreviewPath, 3600),
       previewPath: item.publicPreviewPath,
     })));
 
+    const nextOffset = offset + pageItems.length;
+    const nextToken = nextOffset < allItems.length ? String(nextOffset) : null;
+
     res.status(200).json({
       shareId: record.shareId,
       folderName: record.folderName,
-      itemCount: items.length,
+      itemCount: allItems.length,
+      pageSize,
+      nextToken,
       items,
     });
   } catch (err) {

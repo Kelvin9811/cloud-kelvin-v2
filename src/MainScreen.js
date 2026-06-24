@@ -67,7 +67,13 @@ const MainScreen = ({ user, signOut }) => {
   const [addFolderModalOpen, setAddFolderModalOpen] = useState(false);
   const [folderInput, setFolderInput] = useState('');
   const [folderError, setFolderError] = useState(null);
-  const [shareState, setShareState] = useState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+  const [shareState, setShareState] = useState({
+    loading: false,
+    action: '',
+    shared: false,
+    shareId: null,
+    publicUrlPath: '',
+  });
   const [deleteFolderState, setDeleteFolderState] = useState({ open: false, busy: false, error: null });
   const [shareLinkModal, setShareLinkModal] = useState({ open: false, url: '', copied: false });
   const [backBtnSize, setBackBtnSize] = useState(40);
@@ -198,47 +204,49 @@ const MainScreen = ({ user, signOut }) => {
 
   const refreshShareState = async (folderName) => {
     if (!user?.userId || !folderName) {
-      setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+      setShareState({ loading: false, action: '', shared: false, shareId: null, publicUrlPath: '' });
       return;
     }
 
-    setShareState((prev) => ({ ...prev, loading: true }));
+    setShareState((prev) => ({ ...prev, loading: true, action: 'status' }));
     try {
       const hasShareableItems = await folderHasShareableItems(user.userId, folderName);
       if (!hasShareableItems) {
         console.log('[MainScreen] Skipping share status for empty folder', { folderName });
-        setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+        setShareState({ loading: false, action: '', shared: false, shareId: null, publicUrlPath: '' });
         return;
       }
 
       const status = await getShareStatus({ userId: user.userId, folderName });
       setShareState({
         loading: false,
+        action: '',
         shared: Boolean(status.shared),
         shareId: status.shareId || null,
         publicUrlPath: status.publicUrlPath || '',
       });
     } catch (error) {
       console.error('Error loading share status:', error);
-      setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+      setShareState({ loading: false, action: '', shared: false, shareId: null, publicUrlPath: '' });
     }
   };
 
   const handlePublishFolder = async () => {
     if (!user?.userId || !currentFolder) return;
 
-    setShareState((prev) => ({ ...prev, loading: true }));
+    setShareState((prev) => ({ ...prev, loading: true, action: 'publish' }));
     try {
       const hasShareableItems = await folderHasShareableItems(user.userId, currentFolder);
       if (!hasShareableItems) {
         console.warn('[MainScreen] Cannot publish empty folder', { currentFolder });
-        setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+        setShareState({ loading: false, action: '', shared: false, shareId: null, publicUrlPath: '' });
         return;
       }
 
       const result = await publishShare({ userId: user.userId, folderName: currentFolder });
       setShareState({
         loading: false,
+        action: '',
         shared: true,
         shareId: result.shareId || null,
         publicUrlPath: result.publicUrlPath || '',
@@ -246,36 +254,20 @@ const MainScreen = ({ user, signOut }) => {
       openShareLinkModal(result.publicUrlPath || '');
     } catch (error) {
       console.error('Error publishing folder:', error);
-      setShareState((prev) => ({ ...prev, loading: false }));
+      setShareState((prev) => ({ ...prev, loading: false, action: '' }));
     }
   };
 
   const handleUnpublishFolder = async () => {
     if (!user?.userId || !currentFolder) return;
 
-    setShareState((prev) => ({ ...prev, loading: true }));
+    setShareState((prev) => ({ ...prev, loading: true, action: 'unpublish' }));
     try {
       await unpublishShare({ userId: user.userId, folderName: currentFolder });
-      setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+      setShareState({ loading: false, action: '', shared: false, shareId: null, publicUrlPath: '' });
     } catch (error) {
       console.error('Error unpublishing folder:', error);
-      setShareState((prev) => ({ ...prev, loading: false }));
-    }
-  };
-
-  const handleCopyShareLink = async () => {
-    const url = getPublicShareUrl(shareState.publicUrlPath);
-    if (!url) return;
-
-    try {
-      await navigator.clipboard.writeText(url);
-      setShareLinkModal((prev) => ({
-        open: true,
-        url,
-        copied: true,
-      }));
-    } catch (error) {
-      console.error('Error copying share link:', error);
+      setShareState((prev) => ({ ...prev, loading: false, action: '' }));
     }
   };
 
@@ -295,7 +287,7 @@ const MainScreen = ({ user, signOut }) => {
     if (!name) return;
 
     setCurrentFolder(name);
-    setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+    setShareState({ loading: false, action: '', shared: false, shareId: null, publicUrlPath: '' });
     resetAndLoadImages(user?.userId, name);
   };
 
@@ -331,7 +323,7 @@ const MainScreen = ({ user, signOut }) => {
 
     try {
       setCurrentFolder(name);
-      setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+      setShareState({ loading: false, action: '', shared: false, shareId: null, publicUrlPath: '' });
       closeAddFolderModal();
       resetAndLoadImages(userId, name);
     } catch (error) {
@@ -390,7 +382,7 @@ const MainScreen = ({ user, signOut }) => {
       }));
 
       setDeleteFolderState({ open: false, busy: false, error: null });
-      setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+      setShareState({ loading: false, action: '', shared: false, shareId: null, publicUrlPath: '' });
       setCurrentFolder(null);
       resetAndLoadImagesHome(userId);
     } catch (error) {
@@ -421,7 +413,7 @@ const MainScreen = ({ user, signOut }) => {
 
   useEffect(() => {
     if (!currentFolder || !user?.userId) {
-      setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+      setShareState({ loading: false, action: '', shared: false, shareId: null, publicUrlPath: '' });
       return;
     }
 
@@ -497,7 +489,18 @@ const MainScreen = ({ user, signOut }) => {
         </div>
 
         {selected === 'upload' ? (
-          <UploadPage userId={user?.userId} currentFolder={currentFolder} />
+          <UploadPage
+            userId={user?.userId}
+            currentFolder={currentFolder}
+            onBack={() => {
+              setSelected(null);
+              if (currentFolder) {
+                resetAndLoadImages(user?.userId, currentFolder);
+              } else {
+                resetAndLoadImagesHome(user?.userId);
+              }
+            }}
+          />
         ) : (
           <Galery images={images} onDelete={handleDeleteLocal} onSelectFolder={handleSetFolderFromButton} />
         )}
@@ -561,7 +564,15 @@ const MainScreen = ({ user, signOut }) => {
                 <span aria-hidden="true" style={{ marginRight: 8 }}>
                   {shareState.shared ? '\u{1F512}' : '\u{1F310}'}
                 </span>
-                {shareState.loading ? 'Procesando...' : shareState.shared ? 'Despublicar carpeta' : 'Publicar carpeta'}
+                {shareState.loading && shareState.action === 'publish'
+                  ? 'Creando enlace...'
+                  : shareState.loading && shareState.action === 'unpublish'
+                    ? 'Despublicando...'
+                    : shareState.loading
+                      ? 'Procesando...'
+                      : shareState.shared
+                        ? 'Despublicar carpeta'
+                        : 'Publicar carpeta'}
               </button>
             )}
             {currentFolder && (
@@ -631,6 +642,28 @@ const MainScreen = ({ user, signOut }) => {
               <button onClick={closeShareLinkModal} style={{ padding: '8px 12px', borderRadius: 8 }}>
                 Aceptar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {shareState.loading && shareState.action === 'publish' && !shareLinkModal.open && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10002 }} role="dialog" aria-modal="true">
+          <div style={{ background: '#fff', padding: 24, borderRadius: 12, width: '90%', maxWidth: 360, boxShadow: '0 8px 30px rgba(0,0,0,0.25)', textAlign: 'center' }}>
+            <div
+              style={{
+                width: 42,
+                height: 42,
+                margin: '0 auto 14px',
+                borderRadius: '50%',
+                border: '4px solid rgba(184,137,255,0.22)',
+                borderTopColor: 'var(--purple-500)',
+                animation: 'spin-public-link 0.9s linear infinite',
+              }}
+            />
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Creando enlace publico</div>
+            <div style={{ color: 'var(--muted)' }}>
+              Estamos preparando la carpeta compartida. Esto puede tardar unos segundos.
             </div>
           </div>
         </div>
