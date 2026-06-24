@@ -5,6 +5,7 @@ import { Amplify } from 'aws-amplify';
 import { Authenticator, useAuthenticator, useTheme, View, Text, Heading, Button, Image, } from '@aws-amplify/ui-react';
 import '@aws-amplify/ui-react/styles.css';
 import MainScreen from './MainScreen.js';
+import SharedPage from './components/SharedPage.js';
 import KelvinLogo from './images/Kelvin-cloud-logo.png';
 import { I18n } from 'aws-amplify/utils';
 import { translations } from '@aws-amplify/ui-react';
@@ -178,6 +179,11 @@ const components = {
 
 
 function App() {
+  const sharedMatch = window.location.pathname.match(/^\/shared\/([^/]+)/);
+  if (sharedMatch) {
+    return <SharedPage shareId={sharedMatch[1]} />;
+  }
+
   return (
     <div className="App">
       <header className="App-header">

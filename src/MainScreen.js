@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import SidebarMenu from './components/SidebarMenu';
-import Galery from './components/Galery'; // agregado
-import UploadPage from './components/UploadPage'; // nuevo componente
+import Galery from './components/Galery';
+import UploadPage from './components/UploadPage';
 import './App.css';
-import './components/UploadPage.css'; // estilos para FAB y UploadPage
+import './components/UploadPage.css';
 import carpetaLogo from './images/carpeta_logo.jpg';
 import backButtonImage from './images/back-button.png';
 import { uploadData, getUrl, list } from '@aws-amplify/storage';
+import { getShareStatus, publishShare, unpublishShare } from './shareApi';
+
 const FOLDER_PREFIX = 'CODIGOUNICODECARPETASKOR';
+const PAGE_SIZE = 20;
 
 const getFilenameFromPath = (path = '') => path.split('/').pop() || '';
 
@@ -49,46 +52,40 @@ const sortPreviewItems = (items = []) => {
   });
 };
 
-const PAGE_SIZE = 20;
-
 const MainScreen = ({ user, signOut }) => {
   const [selected, setSelected] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef();
 
-  // nuevo estado para las imágenes cargadas y paginación
   const [allImages, setAllImages] = useState([]);
   const [images, setImages] = useState([]);
   const [nextToken, setNextToken] = useState(null);
   const [loading, setLoading] = useState(false);
   const didLoadRef = useRef(false);
-  // carpeta actual (vacía por defecto). Se mostrará en el saludo cuando esté definida.
   const [currentFolder, setCurrentFolder] = useState(null);
-  // Estados y métodos relacionados con carpetas
   const [addFolderModalOpen, setAddFolderModalOpen] = useState(false);
   const [folderInput, setFolderInput] = useState('');
   const [folderError, setFolderError] = useState(null);
-  // tamaño dinámico del botón de volver (ancho = alto)
+  const [shareState, setShareState] = useState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
   const [backBtnSize, setBackBtnSize] = useState(40);
 
   useEffect(() => {
     const computeSize = () => {
       try {
         const minSide = Math.min(window.innerWidth || 800, window.innerHeight || 600);
-        // 5% del menor lado, con límites entre 32 y 72 px
         const size = Math.max(32, Math.min(72, Math.round(minSide * 0.05)));
         setBackBtnSize(size);
       } catch (e) {
         setBackBtnSize(40);
       }
     };
+
     computeSize();
     window.addEventListener('resize', computeSize, { passive: true });
     return () => window.removeEventListener('resize', computeSize);
   }, []);
 
   const handleAddFolder = () => {
-    // abrir modal para ingresar nombre de carpeta
     setFolderInput('');
     setFolderError(null);
     setAddFolderModalOpen(true);
@@ -103,15 +100,13 @@ const MainScreen = ({ user, signOut }) => {
   const createFolder = async (folderName) => {
     const name = (folderName || '').trim();
     if (!name) {
-      setFolderError('El nombre de la carpeta no puede estar vacío');
+      setFolderError('El nombre de la carpeta no puede estar vacio');
       return;
     }
+
     const cleanName = FOLDER_PREFIX.concat(name).replace(/\s+/g, '_');
     const userId = user?.userId;
-  // crear un placeholder en el listado general de previews (visibile en la galería raiz)
-  // el nombre contiene el prefijo especial para identificarlo como 'botón de carpeta'
-  const previewPath = `uploads/users/${userId}/previews/${cleanName}`;
-
+    const previewPath = `uploads/users/${userId}/previews/${cleanName}`;
     const response = await fetch(carpetaLogo);
     const blob = await response.blob();
 
@@ -124,31 +119,91 @@ const MainScreen = ({ user, signOut }) => {
     }).result;
 
     try {
-  setCurrentFolder(name);
-  closeAddFolderModal();
-  // recargar la galería ahora que cambiamos la carpeta activa
-  resetAndLoadImages(user?.userId);
+      setCurrentFolder(name);
+      closeAddFolderModal();
+      resetAndLoadImages(user?.userId);
     } catch (err) {
       console.error('Error creando carpeta (placeholder):', err);
       setFolderError('No se pudo crear la carpeta');
     }
   };
-  // Construye el path base para listar previews según la carpeta actual
+
   const getPreviewListPath = (userId, folderOverride = null) => {
     if (!userId) return '';
-    console.log('Getting preview list path for user:', userId, 'folderOverride:', folderOverride);
     const folder = folderOverride !== null ? folderOverride : currentFolder;
-    console.log('Using folder:', folder);
     if (folder) return `uploads/users/${userId}/${folder}/previews/`;
-    console.log('No folder, using root previews path');
     return `uploads/users/${userId}/previews/`;
+  };
+
+  const getPublicShareUrl = (publicUrlPath) => {
+    if (!publicUrlPath) return '';
+    return `${window.location.origin}${publicUrlPath}`;
+  };
+
+  const refreshShareState = async (folderName) => {
+    if (!user?.userId || !folderName) {
+      setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+      return;
+    }
+
+    setShareState((prev) => ({ ...prev, loading: true }));
+    try {
+      const status = await getShareStatus({ userId: user.userId, folderName });
+      setShareState({
+        loading: false,
+        shared: !!status.shared,
+        shareId: status.shareId || null,
+        publicUrlPath: status.publicUrlPath || '',
+      });
+    } catch (error) {
+      console.error('Error loading share status:', error);
+      setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+    }
+  };
+
+  const handlePublishFolder = async () => {
+    if (!user?.userId || !currentFolder) return;
+    setShareState((prev) => ({ ...prev, loading: true }));
+    try {
+      const result = await publishShare({ userId: user.userId, folderName: currentFolder });
+      setShareState({
+        loading: false,
+        shared: true,
+        shareId: result.shareId || null,
+        publicUrlPath: result.publicUrlPath || '',
+      });
+    } catch (error) {
+      console.error('Error publishing folder:', error);
+      setShareState((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleUnpublishFolder = async () => {
+    if (!user?.userId || !currentFolder) return;
+    setShareState((prev) => ({ ...prev, loading: true }));
+    try {
+      await unpublishShare({ userId: user.userId, folderName: currentFolder });
+      setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+    } catch (error) {
+      console.error('Error unpublishing folder:', error);
+      setShareState((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleCopyShareLink = async () => {
+    const url = getPublicShareUrl(shareState.publicUrlPath);
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch (error) {
+      console.error('Error copying share link:', error);
+    }
   };
 
   const handleSetFolderFromButton = (folderName) => {
     const name = (folderName || '').trim();
     if (!name) return;
     setCurrentFolder(name);
-    // recargar la galería usando la nueva carpeta (pasamos override para evitar condiciones de carrera)
     resetAndLoadImages(user?.userId, name);
   };
 
@@ -187,7 +242,6 @@ const MainScreen = ({ user, signOut }) => {
     if (!userId || loading) return;
     setLoading(true);
     try {
-      console.log('Loading images for user:', userId, 'folderOverride:', folderOverride);
       const items = await listAllPreviewItems(userId, folderOverride);
       const itemsMapped = await Promise.all(
         items.map(async (item) => ({
@@ -195,7 +249,6 @@ const MainScreen = ({ user, signOut }) => {
           path: item.path
         }))
       );
-      console.log('List result:', itemsMapped);
 
       const sortedItems = sortPreviewItems(itemsMapped);
       setAllImages(sortedItems);
@@ -207,27 +260,20 @@ const MainScreen = ({ user, signOut }) => {
     }
   };
 
-  // Resetea el estado de la galería y fuerza una recarga desde la primera página
   const resetAndLoadImages = (userId, folderOverride = null) => {
     setAllImages([]);
     setImages([]);
     setNextToken(null);
     setLoading(false);
-    // allow loadImages to run again
     didLoadRef.current = false;
     if (userId) loadImages(userId, null, folderOverride);
   };
 
-    // Resetea el estado de la galería y fuerza una recarga desde la primera página
   const resetAndLoadImagesHome = (userId) => {
-    // Reinicia el contexto de carpeta y recarga la galería raíz (sin subcarpetas)
     setCurrentFolder(null);
-    // Reutilizamos resetAndLoadImages para limpiar estados y lanzar la carga de la raíz
     resetAndLoadImages(userId, '');
   };
 
-
-  // Handler para eliminar un item localmente sin recargar toda la galería
   const handleDeleteLocal = (index, item) => {
     setAllImages((prev) => {
       const updated = prev.filter((entry) => entry.path !== item?.path);
@@ -237,9 +283,7 @@ const MainScreen = ({ user, signOut }) => {
     setImages((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // cargar imágenes al montar o cuando cambie el usuario -> resetear y cargar primera página
   useEffect(() => {
-
     if (didLoadRef.current) return;
     didLoadRef.current = true;
 
@@ -250,7 +294,15 @@ const MainScreen = ({ user, signOut }) => {
     if (user?.userId) loadImages(user.userId, null);
   }, [user]);
 
-  // cargar siguiente página al hacer scroll cerca del final
+  useEffect(() => {
+    if (!currentFolder || !user?.userId) {
+      setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+      return;
+    }
+
+    refreshShareState(currentFolder);
+  }, [currentFolder, user]);
+
   useEffect(() => {
     const onScroll = () => {
       if (loading) return;
@@ -260,17 +312,18 @@ const MainScreen = ({ user, signOut }) => {
         loadMoreImages();
       }
     };
+
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, [nextToken, loading, allImages]);
 
-  // cerrar menú si se hace clic fuera
   useEffect(() => {
     const onDocClick = (e) => {
       if (menuOpen && menuRef.current && !menuRef.current.contains(e.target)) {
         setMenuOpen(false);
       }
     };
+
     window.addEventListener('click', onDocClick);
     return () => window.removeEventListener('click', onDocClick);
   }, [menuOpen]);
@@ -278,11 +331,10 @@ const MainScreen = ({ user, signOut }) => {
   return (
     <div className="App">
       <div className="main-content" style={{ position: 'relative' }}>
-        {/* Botón de volver a raíz (solo cuando estamos dentro de una carpeta) */}
         {currentFolder && (
           <button
             onClick={() => { setSelected(null); resetAndLoadImagesHome(user?.userId); }}
-            aria-label="Volver a la raíz"
+            aria-label="Volver a la raiz"
             title="Volver"
             style={{
               position: 'absolute',
@@ -305,17 +357,18 @@ const MainScreen = ({ user, signOut }) => {
             <img src={backButtonImage} alt="Volver" style={{ height: Math.round(backBtnSize * 0.55), width: Math.round(backBtnSize * 0.55) }} />
           </button>
         )}
+
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <span className="greeting">Hola <strong>{user?.username}</strong>{currentFolder ? ` Carpeta ${currentFolder}` : ''}</span>
         </div>
+
         {selected === 'upload' ? (
           <UploadPage userId={user?.userId} currentFolder={currentFolder} />
         ) : (
-          <Galery images={images} userId={user?.userId} onDelete={handleDeleteLocal} onSelectFolder={handleSetFolderFromButton} />
+          <Galery images={images} onDelete={handleDeleteLocal} onSelectFolder={handleSetFolderFromButton} />
         )}
       </div>
 
-      {/* Modal para agregar carpeta */}
       {addFolderModalOpen && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
           <div style={{ background: '#fff', padding: 20, borderRadius: 8, width: 760, maxWidth: '90%', boxShadow: '0 6px 20px rgba(0,0,0,0.2)' }} role="dialog" aria-modal="true">
@@ -338,9 +391,8 @@ const MainScreen = ({ user, signOut }) => {
         </div>
       )}
 
-      {/* FAB y menú desplegable */}
       <div className="fab-container" ref={menuRef}>
-        <button className="fab-button" onClick={() => setMenuOpen((s) => !s)} aria-label="Abrir menú">
+        <button className="fab-button" onClick={() => setMenuOpen((s) => !s)} aria-label="Abrir menu">
           ☰
         </button>
         {menuOpen && (
@@ -354,8 +406,50 @@ const MainScreen = ({ user, signOut }) => {
             <button className="fab-menu-item" role="menuitem" onClick={() => { handleAddFolder(); setMenuOpen(false); }}>
               <span aria-hidden="true" style={{ marginRight: 8 }}>📁</span>Agregar carpeta
             </button>
+            {currentFolder && (
+              <button
+                className="fab-menu-item"
+                role="menuitem"
+                onClick={async () => {
+                  setMenuOpen(false);
+                  if (shareState.shared) {
+                    await handleUnpublishFolder();
+                  } else {
+                    await handlePublishFolder();
+                  }
+                }}
+              >
+                <span aria-hidden="true" style={{ marginRight: 8 }}>{shareState.shared ? '🔒' : '🌐'}</span>
+                {shareState.loading ? 'Procesando...' : shareState.shared ? 'Despublicar carpeta' : 'Publicar carpeta'}
+              </button>
+            )}
+            {currentFolder && shareState.shared && (
+              <button
+                className="fab-menu-item"
+                role="menuitem"
+                onClick={async () => {
+                  setMenuOpen(false);
+                  await handleCopyShareLink();
+                }}
+              >
+                <span aria-hidden="true" style={{ marginRight: 8 }}>🔗</span>Copiar enlace
+              </button>
+            )}
+            {currentFolder && shareState.shared && (
+              <a
+                className="fab-menu-item"
+                role="menuitem"
+                href={getPublicShareUrl(shareState.publicUrlPath)}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => setMenuOpen(false)}
+                style={{ textDecoration: 'none' }}
+              >
+                <span aria-hidden="true" style={{ marginRight: 8 }}>🔗</span>Abrir enlace publico
+              </a>
+            )}
             <button className="fab-menu-item" role="menuitem" onClick={() => { if (typeof signOut === 'function') signOut(); setMenuOpen(false); }}>
-              <span aria-hidden="true" style={{ marginRight: 8 }}>🚪</span>Cerrar sesión
+              <span aria-hidden="true" style={{ marginRight: 8 }}>🚪</span>Cerrar sesion
             </button>
           </ul>
         )}
@@ -363,6 +457,5 @@ const MainScreen = ({ user, signOut }) => {
     </div>
   );
 };
-
 
 export default MainScreen;

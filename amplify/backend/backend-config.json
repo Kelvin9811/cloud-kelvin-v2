@@ -75,6 +75,14 @@
           ],
           "category": "auth",
           "resourceName": "cloudkelvinv27a3557397a355739"
+        },
+        {
+          "attributes": [
+            "BucketName",
+            "Region"
+          ],
+          "category": "storage",
+          "resourceName": "s3b92528f2"
         }
       ],
       "providerPlugin": "awscloudformation",

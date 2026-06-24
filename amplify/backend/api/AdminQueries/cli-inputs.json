@@ -1,6 +1,12 @@
 {
   "version": 1,
   "paths": {
+    "/public/{proxy+}": {
+      "lambdaFunction": "AdminQueriesaf84bc40",
+      "permissions": {
+        "setting": "open"
+      }
+    },
     "/{proxy+}": {
       "lambdaFunction": "AdminQueriesaf84bc40",
       "permissions": {
