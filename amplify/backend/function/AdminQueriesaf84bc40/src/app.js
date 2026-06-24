@@ -79,8 +79,41 @@ const parseJsonBody = async (stream) => {
 const getClaims = (req) => req?.apiGateway?.event?.requestContext?.authorizer?.claims || {};
 const getAuthenticatedUserId = (req) => getClaims(req).sub || null;
 
+const maskValue = (value) => {
+  if (!value || typeof value !== 'string') return value || null;
+  if (value.length <= 16) return `${value.slice(0, 4)}...${value.slice(-4)}`;
+  return `${value.slice(0, 10)}...${value.slice(-10)}`;
+};
+
+const summarizeRequest = (req) => {
+  const claims = getClaims(req);
+  const authHeader = req.headers?.authorization || req.headers?.Authorization || null;
+
+  return {
+    method: req.method,
+    path: req.path,
+    query: req.query,
+    body: req.body,
+    hasAuthorizationHeader: Boolean(authHeader),
+    authorizationPreview: maskValue(authHeader),
+    requestId: req?.apiGateway?.event?.requestContext?.requestId || null,
+    sourceIp: req?.apiGateway?.event?.requestContext?.identity?.sourceIp || null,
+    authenticatedSub: claims.sub || null,
+    username: claims.username || claims['cognito:username'] || null,
+    tokenUse: claims.token_use || null,
+    issuer: claims.iss || null,
+    clientId: claims.client_id || claims.aud || null,
+    groups: claims['cognito:groups'] || null,
+  };
+};
+
 const ensureSignedInUser = (req, requestedUserId) => {
   const authenticatedUserId = getAuthenticatedUserId(req);
+  console.log('[shares] ensureSignedInUser', {
+    requestedUserId,
+    authenticatedUserId,
+    request: summarizeRequest(req),
+  });
   if (!authenticatedUserId) {
     const err = new Error('authentication required');
     err.statusCode = 401;
@@ -268,17 +301,26 @@ app.all('*', checkGroup);
 
 app.get('/shares/status', async (req, res, next) => {
   try {
+    console.log('[shares] GET /shares/status start', summarizeRequest(req));
     const userId = ensureSignedInUser(req, req.query.userId);
     const folderName = normalizeFolderName(req.query.folderName);
     if (!folderName) {
+      console.log('[shares] GET /shares/status no folderName provided');
       return res.status(200).json({ shared: false });
     }
 
     const record = await getFolderShareRecord(userId, folderName);
     if (!record?.shareId) {
+      console.log('[shares] GET /shares/status share not found', { userId, folderName });
       return res.status(200).json({ shared: false });
     }
 
+    console.log('[shares] GET /shares/status share found', {
+      userId,
+      folderName,
+      shareId: record.shareId,
+      itemCount: (record.items || []).length,
+    });
     res.status(200).json({
       shared: true,
       shareId: record.shareId,
@@ -293,10 +335,17 @@ app.get('/shares/status', async (req, res, next) => {
 
 app.post('/shares/publish', async (req, res, next) => {
   try {
+    console.log('[shares] POST /shares/publish start', summarizeRequest(req));
     const userId = ensureSignedInUser(req, req.body.userId);
     const folderName = normalizeFolderName(req.body.folderName);
     const record = await publishFolderShare(userId, folderName);
 
+    console.log('[shares] POST /shares/publish success', {
+      userId,
+      folderName,
+      shareId: record.shareId,
+      itemCount: (record.items || []).length,
+    });
     res.status(200).json({
       shareId: record.shareId,
       folderName: record.folderName,
@@ -310,9 +359,15 @@ app.post('/shares/publish', async (req, res, next) => {
 
 app.post('/shares/unpublish', async (req, res, next) => {
   try {
+    console.log('[shares] POST /shares/unpublish start', summarizeRequest(req));
     const userId = ensureSignedInUser(req, req.body.userId);
     const folderName = normalizeFolderName(req.body.folderName);
     const result = await unpublishFolderShare(userId, folderName);
+    console.log('[shares] POST /shares/unpublish result', {
+      userId,
+      folderName,
+      result,
+    });
     res.status(200).json(result);
   } catch (err) {
     next(err);
@@ -534,7 +589,12 @@ app.post('/signUserOut', async (req, res, next) => {
 });
 
 app.use((err, req, res, next) => {
-  console.error(err);
+  console.error('[app] request failed', {
+    errorMessage: err?.message,
+    statusCode: err?.statusCode || 500,
+    stack: err?.stack,
+    request: req ? summarizeRequest(req) : null,
+  });
   if (!err.statusCode) err.statusCode = 500;
   res.status(err.statusCode).json({ message: err.message }).end();
 });

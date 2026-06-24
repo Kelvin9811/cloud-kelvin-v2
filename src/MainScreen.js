@@ -1,18 +1,18 @@
-import React, { useState, useEffect, useRef } from 'react';
-import SidebarMenu from './components/SidebarMenu';
+import React, { useEffect, useRef, useState } from 'react';
 import Galery from './components/Galery';
 import UploadPage from './components/UploadPage';
 import './App.css';
 import './components/UploadPage.css';
 import carpetaLogo from './images/carpeta_logo.jpg';
 import backButtonImage from './images/back-button.png';
-import { uploadData, getUrl, list } from '@aws-amplify/storage';
+import { getUrl, list, remove, uploadData } from '@aws-amplify/storage';
 import { getShareStatus, publishShare, unpublishShare } from './shareApi';
 
 const FOLDER_PREFIX = 'CODIGOUNICODECARPETASKOR';
 const PAGE_SIZE = 20;
 
 const getFilenameFromPath = (path = '') => path.split('/').pop() || '';
+const getFolderPlaceholderName = (folderName = '') => `${FOLDER_PREFIX}${(folderName || '').trim()}`.replace(/\s+/g, '_');
 
 const parseUploadDateFromFilename = (path = '') => {
   const filename = getFilenameFromPath(path);
@@ -21,14 +21,15 @@ const parseUploadDateFromFilename = (path = '') => {
 
   const datePart = match[1];
   const timePart = match[2];
-  const year = Number(datePart.slice(0, 4));
-  const month = Number(datePart.slice(4, 6)) - 1;
-  const day = Number(datePart.slice(6, 8));
-  const hours = Number(timePart.slice(0, 2));
-  const minutes = Number(timePart.slice(2, 4));
-  const seconds = Number(timePart.slice(4, 6));
 
-  return new Date(year, month, day, hours, minutes, seconds).getTime();
+  return new Date(
+    Number(datePart.slice(0, 4)),
+    Number(datePart.slice(4, 6)) - 1,
+    Number(datePart.slice(6, 8)),
+    Number(timePart.slice(0, 2)),
+    Number(timePart.slice(2, 4)),
+    Number(timePart.slice(4, 6))
+  ).getTime();
 };
 
 const sortPreviewItems = (items = []) => {
@@ -55,7 +56,7 @@ const sortPreviewItems = (items = []) => {
 const MainScreen = ({ user, signOut }) => {
   const [selected, setSelected] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef();
+  const menuRef = useRef(null);
 
   const [allImages, setAllImages] = useState([]);
   const [images, setImages] = useState([]);
@@ -67,6 +68,7 @@ const MainScreen = ({ user, signOut }) => {
   const [folderInput, setFolderInput] = useState('');
   const [folderError, setFolderError] = useState(null);
   const [shareState, setShareState] = useState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+  const [deleteFolderState, setDeleteFolderState] = useState({ open: false, busy: false, error: null });
   const [backBtnSize, setBackBtnSize] = useState(40);
 
   useEffect(() => {
@@ -75,7 +77,7 @@ const MainScreen = ({ user, signOut }) => {
         const minSide = Math.min(window.innerWidth || 800, window.innerHeight || 600);
         const size = Math.max(32, Math.min(72, Math.round(minSide * 0.05)));
         setBackBtnSize(size);
-      } catch (e) {
+      } catch {
         setBackBtnSize(40);
       }
     };
@@ -84,6 +86,190 @@ const MainScreen = ({ user, signOut }) => {
     window.addEventListener('resize', computeSize, { passive: true });
     return () => window.removeEventListener('resize', computeSize);
   }, []);
+
+  const getPreviewListPath = (userId, folderOverride = null) => {
+    if (!userId) return '';
+    const folder = folderOverride !== null ? folderOverride : currentFolder;
+    if (folder) return `uploads/users/${userId}/${folder}/previews/`;
+    return `uploads/users/${userId}/previews/`;
+  };
+
+  const getPublicShareUrl = (publicUrlPath) => {
+    if (!publicUrlPath) return '';
+    return `${window.location.origin}${publicUrlPath}`;
+  };
+
+  const listAllItemsForPath = async (path) => {
+    const allItems = [];
+    let currentToken;
+
+    do {
+      const result = await list({
+        path,
+        options: { pageSize: 1000, nextToken: currentToken }
+      });
+
+      allItems.push(...(result.items || []));
+      currentToken = result.nextToken || undefined;
+    } while (currentToken);
+
+    return allItems;
+  };
+
+  const listAllPreviewItems = async (userId, folderOverride = null) => {
+    return listAllItemsForPath(getPreviewListPath(userId, folderOverride));
+  };
+
+  const folderHasShareableItems = async (userId, folderName) => {
+    if (!userId || !folderName) return false;
+
+    const result = await list({
+      path: `uploads/users/${userId}/${folderName}/previews/`,
+      options: { pageSize: 50 }
+    });
+
+    return (result.items || []).some((item) => {
+      const filename = getFilenameFromPath(item.path);
+      return filename && !filename.startsWith(FOLDER_PREFIX);
+    });
+  };
+
+  const applyLocalPagination = (sortedItems, offset = 0) => {
+    const nextOffset = offset + PAGE_SIZE;
+    const nextPage = sortedItems.slice(offset, nextOffset);
+    setImages((prev) => (offset === 0 ? nextPage : [...prev, ...nextPage]));
+    setNextToken(nextOffset < sortedItems.length ? String(nextOffset) : null);
+  };
+
+  const loadMoreImages = () => {
+    if (loading || !nextToken) return;
+    const offset = Number(nextToken);
+    if (Number.isNaN(offset)) return;
+    applyLocalPagination(allImages, offset);
+  };
+
+  const loadImages = async (userId, folderOverride = null) => {
+    if (!userId || loading) return;
+
+    setLoading(true);
+    try {
+      const items = await listAllPreviewItems(userId, folderOverride);
+      const itemsMapped = await Promise.all(
+        items.map(async (item) => ({
+          properties: await getUrl({ path: item.path }),
+          path: item.path
+        }))
+      );
+
+      const sortedItems = sortPreviewItems(itemsMapped);
+      setAllImages(sortedItems);
+      applyLocalPagination(sortedItems, 0);
+    } catch (error) {
+      console.error('Error loading images:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetAndLoadImages = (userId, folderOverride = null) => {
+    setAllImages([]);
+    setImages([]);
+    setNextToken(null);
+    setLoading(false);
+    didLoadRef.current = false;
+    if (userId) loadImages(userId, folderOverride);
+  };
+
+  const resetAndLoadImagesHome = (userId) => {
+    setCurrentFolder(null);
+    resetAndLoadImages(userId, '');
+  };
+
+  const refreshShareState = async (folderName) => {
+    if (!user?.userId || !folderName) {
+      setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+      return;
+    }
+
+    setShareState((prev) => ({ ...prev, loading: true }));
+    try {
+      const hasShareableItems = await folderHasShareableItems(user.userId, folderName);
+      if (!hasShareableItems) {
+        console.log('[MainScreen] Skipping share status for empty folder', { folderName });
+        setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+        return;
+      }
+
+      const status = await getShareStatus({ userId: user.userId, folderName });
+      setShareState({
+        loading: false,
+        shared: Boolean(status.shared),
+        shareId: status.shareId || null,
+        publicUrlPath: status.publicUrlPath || '',
+      });
+    } catch (error) {
+      console.error('Error loading share status:', error);
+      setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+    }
+  };
+
+  const handlePublishFolder = async () => {
+    if (!user?.userId || !currentFolder) return;
+
+    setShareState((prev) => ({ ...prev, loading: true }));
+    try {
+      const hasShareableItems = await folderHasShareableItems(user.userId, currentFolder);
+      if (!hasShareableItems) {
+        console.warn('[MainScreen] Cannot publish empty folder', { currentFolder });
+        setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+        return;
+      }
+
+      const result = await publishShare({ userId: user.userId, folderName: currentFolder });
+      setShareState({
+        loading: false,
+        shared: true,
+        shareId: result.shareId || null,
+        publicUrlPath: result.publicUrlPath || '',
+      });
+    } catch (error) {
+      console.error('Error publishing folder:', error);
+      setShareState((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleUnpublishFolder = async () => {
+    if (!user?.userId || !currentFolder) return;
+
+    setShareState((prev) => ({ ...prev, loading: true }));
+    try {
+      await unpublishShare({ userId: user.userId, folderName: currentFolder });
+      setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+    } catch (error) {
+      console.error('Error unpublishing folder:', error);
+      setShareState((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleCopyShareLink = async () => {
+    const url = getPublicShareUrl(shareState.publicUrlPath);
+    if (!url) return;
+
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch (error) {
+      console.error('Error copying share link:', error);
+    }
+  };
+
+  const handleSetFolderFromButton = (folderName) => {
+    const name = (folderName || '').trim();
+    if (!name) return;
+
+    setCurrentFolder(name);
+    setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+    resetAndLoadImages(user?.userId, name);
+  };
 
   const handleAddFolder = () => {
     setFolderInput('');
@@ -104,174 +290,85 @@ const MainScreen = ({ user, signOut }) => {
       return;
     }
 
-    const cleanName = FOLDER_PREFIX.concat(name).replace(/\s+/g, '_');
     const userId = user?.userId;
-    const previewPath = `uploads/users/${userId}/previews/${cleanName}`;
+    const previewPath = `uploads/users/${userId}/previews/${getFolderPlaceholderName(name)}`;
     const response = await fetch(carpetaLogo);
     const blob = await response.blob();
 
     await uploadData({
       path: previewPath,
       data: blob,
-      options: {
-        contentType: 'image/jpeg',
-      }
+      options: { contentType: 'image/jpeg' }
     }).result;
 
     try {
       setCurrentFolder(name);
+      setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
       closeAddFolderModal();
-      resetAndLoadImages(user?.userId);
-    } catch (err) {
-      console.error('Error creando carpeta (placeholder):', err);
+      resetAndLoadImages(userId, name);
+    } catch (error) {
+      console.error('Error creando carpeta:', error);
       setFolderError('No se pudo crear la carpeta');
     }
   };
 
-  const getPreviewListPath = (userId, folderOverride = null) => {
-    if (!userId) return '';
-    const folder = folderOverride !== null ? folderOverride : currentFolder;
-    if (folder) return `uploads/users/${userId}/${folder}/previews/`;
-    return `uploads/users/${userId}/previews/`;
+  const openDeleteFolderModal = () => {
+    setDeleteFolderState({ open: true, busy: false, error: null });
+    setMenuOpen(false);
   };
 
-  const getPublicShareUrl = (publicUrlPath) => {
-    if (!publicUrlPath) return '';
-    return `${window.location.origin}${publicUrlPath}`;
+  const closeDeleteFolderModal = () => {
+    if (deleteFolderState.busy) return;
+    setDeleteFolderState({ open: false, busy: false, error: null });
   };
 
-  const refreshShareState = async (folderName) => {
-    if (!user?.userId || !folderName) {
-      setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
-      return;
-    }
-
-    setShareState((prev) => ({ ...prev, loading: true }));
-    try {
-      const status = await getShareStatus({ userId: user.userId, folderName });
-      setShareState({
-        loading: false,
-        shared: !!status.shared,
-        shareId: status.shareId || null,
-        publicUrlPath: status.publicUrlPath || '',
-      });
-    } catch (error) {
-      console.error('Error loading share status:', error);
-      setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
-    }
-  };
-
-  const handlePublishFolder = async () => {
+  const handleDeleteFolder = async () => {
     if (!user?.userId || !currentFolder) return;
-    setShareState((prev) => ({ ...prev, loading: true }));
-    try {
-      const result = await publishShare({ userId: user.userId, folderName: currentFolder });
-      setShareState({
-        loading: false,
-        shared: true,
-        shareId: result.shareId || null,
-        publicUrlPath: result.publicUrlPath || '',
-      });
-    } catch (error) {
-      console.error('Error publishing folder:', error);
-      setShareState((prev) => ({ ...prev, loading: false }));
-    }
-  };
 
-  const handleUnpublishFolder = async () => {
-    if (!user?.userId || !currentFolder) return;
-    setShareState((prev) => ({ ...prev, loading: true }));
+    const folderName = currentFolder;
+    const userId = user.userId;
+    const placeholderPath = `uploads/users/${userId}/previews/${getFolderPlaceholderName(folderName)}`;
+    const previewBasePath = `uploads/users/${userId}/${folderName}/previews/`;
+    const originalBasePath = `uploads/users/${userId}/${folderName}/original/`;
+
+    setDeleteFolderState({ open: true, busy: true, error: null });
+
     try {
-      await unpublishShare({ userId: user.userId, folderName: currentFolder });
+      if (shareState.shared) {
+        try {
+          await unpublishShare({ userId, folderName });
+        } catch (error) {
+          console.warn('No se pudo despublicar antes de eliminar la carpeta', error);
+        }
+      }
+
+      const [previewItems, originalItems] = await Promise.all([
+        listAllItemsForPath(previewBasePath),
+        listAllItemsForPath(originalBasePath),
+      ]);
+
+      const uniquePaths = [...new Set([
+        ...previewItems.map((item) => item.path).filter(Boolean),
+        ...originalItems.map((item) => item.path).filter(Boolean),
+        placeholderPath,
+      ])];
+
+      await Promise.all(uniquePaths.map(async (path) => {
+        try {
+          await remove({ path });
+        } catch (error) {
+          console.warn('Error eliminando ruta de carpeta', { path, error });
+        }
+      }));
+
+      setDeleteFolderState({ open: false, busy: false, error: null });
       setShareState({ loading: false, shared: false, shareId: null, publicUrlPath: '' });
+      setCurrentFolder(null);
+      resetAndLoadImagesHome(userId);
     } catch (error) {
-      console.error('Error unpublishing folder:', error);
-      setShareState((prev) => ({ ...prev, loading: false }));
+      console.error('Error deleting folder:', error);
+      setDeleteFolderState({ open: true, busy: false, error: 'No se pudo eliminar la carpeta completa' });
     }
-  };
-
-  const handleCopyShareLink = async () => {
-    const url = getPublicShareUrl(shareState.publicUrlPath);
-    if (!url) return;
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch (error) {
-      console.error('Error copying share link:', error);
-    }
-  };
-
-  const handleSetFolderFromButton = (folderName) => {
-    const name = (folderName || '').trim();
-    if (!name) return;
-    setCurrentFolder(name);
-    resetAndLoadImages(user?.userId, name);
-  };
-
-  const listAllPreviewItems = async (userId, folderOverride = null) => {
-    const allItems = [];
-    let currentToken = undefined;
-
-    do {
-      const result = await list({
-        path: getPreviewListPath(userId, folderOverride),
-        options: { pageSize: 1000, nextToken: currentToken }
-      });
-
-      allItems.push(...(result.items || []));
-      currentToken = result.nextToken || undefined;
-    } while (currentToken);
-
-    return allItems;
-  };
-
-  const applyLocalPagination = (sortedItems, offset = 0) => {
-    const nextOffset = offset + PAGE_SIZE;
-    const nextPage = sortedItems.slice(offset, nextOffset);
-    setImages((prev) => offset === 0 ? nextPage : [...prev, ...nextPage]);
-    setNextToken(nextOffset < sortedItems.length ? String(nextOffset) : null);
-  };
-
-  const loadMoreImages = () => {
-    if (loading || !nextToken) return;
-    const offset = Number(nextToken);
-    if (Number.isNaN(offset)) return;
-    applyLocalPagination(allImages, offset);
-  };
-
-  const loadImages = async (userId, token = null, folderOverride = null) => {
-    if (!userId || loading) return;
-    setLoading(true);
-    try {
-      const items = await listAllPreviewItems(userId, folderOverride);
-      const itemsMapped = await Promise.all(
-        items.map(async (item) => ({
-          properties: (await getUrl({ path: item.path })),
-          path: item.path
-        }))
-      );
-
-      const sortedItems = sortPreviewItems(itemsMapped);
-      setAllImages(sortedItems);
-      applyLocalPagination(sortedItems, 0);
-    } catch (error) {
-      console.log(error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const resetAndLoadImages = (userId, folderOverride = null) => {
-    setAllImages([]);
-    setImages([]);
-    setNextToken(null);
-    setLoading(false);
-    didLoadRef.current = false;
-    if (userId) loadImages(userId, null, folderOverride);
-  };
-
-  const resetAndLoadImagesHome = (userId) => {
-    setCurrentFolder(null);
-    resetAndLoadImages(userId, '');
   };
 
   const handleDeleteLocal = (index, item) => {
@@ -280,7 +377,7 @@ const MainScreen = ({ user, signOut }) => {
       setNextToken(images.length < updated.length ? String(images.length) : null);
       return updated;
     });
-    setImages((prev) => prev.filter((_, i) => i !== index));
+    setImages((prev) => prev.filter((_, currentIndex) => currentIndex !== index));
   };
 
   useEffect(() => {
@@ -305,8 +402,8 @@ const MainScreen = ({ user, signOut }) => {
 
   useEffect(() => {
     const onScroll = () => {
-      if (loading) return;
-      if (!nextToken) return;
+      if (loading || !nextToken) return;
+
       const nearBottom = (window.innerHeight + window.scrollY) >= (document.body.offsetHeight - 300);
       if (nearBottom) {
         loadMoreImages();
@@ -318,8 +415,8 @@ const MainScreen = ({ user, signOut }) => {
   }, [nextToken, loading, allImages]);
 
   useEffect(() => {
-    const onDocClick = (e) => {
-      if (menuOpen && menuRef.current && !menuRef.current.contains(e.target)) {
+    const onDocClick = (event) => {
+      if (menuOpen && menuRef.current && !menuRef.current.contains(event.target)) {
         setMenuOpen(false);
       }
     };
@@ -333,7 +430,10 @@ const MainScreen = ({ user, signOut }) => {
       <div className="main-content" style={{ position: 'relative' }}>
         {currentFolder && (
           <button
-            onClick={() => { setSelected(null); resetAndLoadImagesHome(user?.userId); }}
+            onClick={() => {
+              setSelected(null);
+              resetAndLoadImagesHome(user?.userId);
+            }}
             aria-label="Volver a la raiz"
             title="Volver"
             style={{
@@ -354,12 +454,18 @@ const MainScreen = ({ user, signOut }) => {
               padding: 0,
             }}
           >
-            <img src={backButtonImage} alt="Volver" style={{ height: Math.round(backBtnSize * 0.55), width: Math.round(backBtnSize * 0.55) }} />
+            <img
+              src={backButtonImage}
+              alt="Volver"
+              style={{ height: Math.round(backBtnSize * 0.55), width: Math.round(backBtnSize * 0.55) }}
+            />
           </button>
         )}
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span className="greeting">Hola <strong>{user?.username}</strong>{currentFolder ? ` Carpeta ${currentFolder}` : ''}</span>
+          <span className="greeting">
+            Hola <strong>{user?.username}</strong>{currentFolder ? ` Carpeta ${currentFolder}` : ''}
+          </span>
         </div>
 
         {selected === 'upload' ? (
@@ -377,8 +483,13 @@ const MainScreen = ({ user, signOut }) => {
             <input
               autoFocus
               value={folderInput}
-              onChange={(e) => { setFolderInput(e.target.value); setFolderError(null); }}
-              onKeyDown={(e) => { if (e.key === 'Enter') createFolder(folderInput); }}
+              onChange={(event) => {
+                setFolderInput(event.target.value);
+                setFolderError(null);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') createFolder(folderInput);
+              }}
               placeholder="Nombre de la carpeta"
               style={{ width: '100%', padding: '8px 10px', marginBottom: 8, boxSizing: 'border-box', borderRadius: 8 }}
             />
@@ -392,19 +503,19 @@ const MainScreen = ({ user, signOut }) => {
       )}
 
       <div className="fab-container" ref={menuRef}>
-        <button className="fab-button" onClick={() => setMenuOpen((s) => !s)} aria-label="Abrir menu">
-          ☰
+        <button className="fab-button" onClick={() => setMenuOpen((state) => !state)} aria-label="Abrir menu">
+          {'\u2630'}
         </button>
         {menuOpen && (
           <ul className="fab-menu open" role="menu">
             <button className="fab-menu-item" role="menuitem" onClick={() => { setSelected(null); setMenuOpen(false); resetAndLoadImagesHome(user?.userId); }}>
-              <span aria-hidden="true" style={{ marginRight: 8 }}>🏠</span>Inicio
+              <span aria-hidden="true" style={{ marginRight: 8 }}>{'\u{1F3E0}'}</span>Inicio
             </button>
             <button className="fab-menu-item" role="menuitem" onClick={() => { setSelected('upload'); setMenuOpen(false); }}>
-              <span aria-hidden="true" style={{ marginRight: 8 }}>➕</span>Agregar archivos
+              <span aria-hidden="true" style={{ marginRight: 8 }}>{'\u2795'}</span>Agregar archivos
             </button>
             <button className="fab-menu-item" role="menuitem" onClick={() => { handleAddFolder(); setMenuOpen(false); }}>
-              <span aria-hidden="true" style={{ marginRight: 8 }}>📁</span>Agregar carpeta
+              <span aria-hidden="true" style={{ marginRight: 8 }}>{'\u{1F4C1}'}</span>Agregar carpeta
             </button>
             {currentFolder && (
               <button
@@ -419,8 +530,15 @@ const MainScreen = ({ user, signOut }) => {
                   }
                 }}
               >
-                <span aria-hidden="true" style={{ marginRight: 8 }}>{shareState.shared ? '🔒' : '🌐'}</span>
+                <span aria-hidden="true" style={{ marginRight: 8 }}>
+                  {shareState.shared ? '\u{1F512}' : '\u{1F310}'}
+                </span>
                 {shareState.loading ? 'Procesando...' : shareState.shared ? 'Despublicar carpeta' : 'Publicar carpeta'}
+              </button>
+            )}
+            {currentFolder && (
+              <button className="fab-menu-item" role="menuitem" onClick={openDeleteFolderModal}>
+                <span aria-hidden="true" style={{ marginRight: 8 }}>{'\u{1F5D1}'}</span>Eliminar carpeta
               </button>
             )}
             {currentFolder && shareState.shared && (
@@ -432,7 +550,7 @@ const MainScreen = ({ user, signOut }) => {
                   await handleCopyShareLink();
                 }}
               >
-                <span aria-hidden="true" style={{ marginRight: 8 }}>🔗</span>Copiar enlace
+                <span aria-hidden="true" style={{ marginRight: 8 }}>{'\u{1F517}'}</span>Copiar enlace
               </button>
             )}
             {currentFolder && shareState.shared && (
@@ -445,15 +563,35 @@ const MainScreen = ({ user, signOut }) => {
                 onClick={() => setMenuOpen(false)}
                 style={{ textDecoration: 'none' }}
               >
-                <span aria-hidden="true" style={{ marginRight: 8 }}>🔗</span>Abrir enlace publico
+                <span aria-hidden="true" style={{ marginRight: 8 }}>{'\u{1F517}'}</span>Abrir enlace publico
               </a>
             )}
             <button className="fab-menu-item" role="menuitem" onClick={() => { if (typeof signOut === 'function') signOut(); setMenuOpen(false); }}>
-              <span aria-hidden="true" style={{ marginRight: 8 }}>🚪</span>Cerrar sesion
+              <span aria-hidden="true" style={{ marginRight: 8 }}>{'\u{1F6AA}'}</span>Cerrar sesion
             </button>
           </ul>
         )}
       </div>
+
+      {deleteFolderState.open && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000 }} role="dialog" aria-modal="true">
+          <div style={{ background: '#fff', padding: 20, borderRadius: 8, width: '90%', maxWidth: 460, boxShadow: '0 6px 24px rgba(0,0,0,0.3)' }}>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Eliminar carpeta completa</div>
+            <div style={{ marginBottom: 12 }}>
+              Se eliminaran previews, originales y el acceso de esta carpeta. Esta accion no se puede deshacer.
+            </div>
+            {deleteFolderState.error && <div style={{ color: 'red', marginBottom: 8 }}>{deleteFolderState.error}</div>}
+            {deleteFolderState.busy ? (
+              <div>Eliminando carpeta completa...</div>
+            ) : (
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 20 }}>
+                <button onClick={closeDeleteFolderModal} style={{ padding: '8px 12px', borderRadius: 8 }}>Cancelar</button>
+                <button onClick={handleDeleteFolder} style={{ padding: '8px 12px', borderRadius: 8, background: '#e53935', color: '#fff', border: 'none' }}>Eliminar carpeta</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
