@@ -51,6 +51,10 @@ const UploadPage = ({ onUpload, onBack, userId = '', currentFolder = '' }) => {
     const normalizeFileName = (name = '') => name.trim().replace(/\s+/g, '_').toLowerCase();
     const getBasePath = () => currentFolder ? `uploads/users/${userId}/${currentFolder}` : `uploads/users/${userId}`;
     const getOriginalListPath = () => `${getBasePath()}/original/`;
+    const replaceFileExtension = (name = '', nextExtension = '.jpg') => {
+        const cleanExtension = nextExtension.startsWith('.') ? nextExtension : `.${nextExtension}`;
+        return /\.[^.]+$/.test(name) ? name.replace(/\.[^.]+$/, cleanExtension) : `${name}${cleanExtension}`;
+    };
 
     const extractComparableOriginalName = (path = '') => {
         const filename = path.split('/').pop() || '';
@@ -315,9 +319,9 @@ const UploadPage = ({ onUpload, onBack, userId = '', currentFolder = '' }) => {
         ]);
     };
 
-    const cleanupPartialUpload = async (previewPath, finalPath) => {
+    const cleanupPartialUpload = async (previewPath, finalPath, displayPath) => {
         await Promise.allSettled(
-            [previewPath, finalPath]
+            [previewPath, finalPath, displayPath]
                 .filter(Boolean)
                 .map((path) => remove({ path }))
         );
@@ -367,15 +371,29 @@ const UploadPage = ({ onUpload, onBack, userId = '', currentFolder = '' }) => {
             const basePath = getBasePath();
             const previewPath = `${basePath}/previews/${fileDateToken}_${uuid}_${cleanName}`;
             const finalPath = `${basePath}/original/${fileDateToken}_${uuid}_${cleanName}`;
+            const shouldCreateDisplayImage = isHeicLikeFile(file);
+            const displayFileName = replaceFileExtension(cleanName, '.jpg');
+            const displayPath = shouldCreateDisplayImage
+                ? `${basePath}/display/${fileDateToken}_${uuid}_${displayFileName}`
+                : null;
 
             console.log(`Prepared upload for file="${file.name}" finalName="${fileDateToken}_${uuid}_${cleanName}" dateSource="${preferredDateSource}" dateIso="${preferredDateIso}"`);
-            console.log('Upload paths -> preview:', previewPath, ' final:', finalPath);
+            console.log('Upload paths -> preview:', previewPath, ' final:', finalPath, ' display:', displayPath);
 
             let previewBlob = null;
             try {
                 previewBlob = await withTimeout(createPreview(file), 30000, `preview generation for ${file.name}`);
             } catch (previewError) {
                 console.warn('Preview generation failed or timed out, continuing without preview for', file.name, previewError);
+            }
+
+            let displayBlob = null;
+            if (shouldCreateDisplayImage) {
+                try {
+                    displayBlob = await withTimeout(createDisplayImage(file), 45000, `display generation for ${file.name}`);
+                } catch (displayError) {
+                    console.warn('Display generation failed or timed out, continuing without display for', file.name, displayError);
+                }
             }
 
             const dataURLtoBlob = (dataurl) => {
@@ -404,6 +422,7 @@ const UploadPage = ({ onUpload, onBack, userId = '', currentFolder = '' }) => {
             }
 
             let previewUploaded = false;
+            let displayUploaded = false;
 
             try {
                 if (cancelRequestedRef.current) {
@@ -434,9 +453,27 @@ const UploadPage = ({ onUpload, onBack, userId = '', currentFolder = '' }) => {
                     previewUploaded = true;
                 }
 
+                if (displayBlob && displayPath) {
+                    await withTimeout(uploadData({
+                        path: displayPath,
+                        data: displayBlob,
+                        options: {
+                            contentType: 'image/jpeg',
+                        },
+                        metadata: {
+                            originalName: file.name,
+                            isDisplay: 'true',
+                            extension: 'image/jpeg',
+                            creationDate: preferredDateIso,
+                            dateSource: preferredDateSource
+                        }
+                    }).result, 180000, `display upload for ${file.name}`);
+                    displayUploaded = true;
+                }
+
                 if (cancelRequestedRef.current) {
-                    if (previewUploaded) {
-                        await cleanupPartialUpload(previewPath, null);
+                    if (previewUploaded || displayUploaded) {
+                        await cleanupPartialUpload(previewUploaded ? previewPath : null, null, displayUploaded ? displayPath : null);
                     }
                     registerOutcome({
                         index: idx,
@@ -470,7 +507,7 @@ const UploadPage = ({ onUpload, onBack, userId = '', currentFolder = '' }) => {
                 });
             } catch (error) {
                 console.error('Error uploading file:', error);
-                await cleanupPartialUpload(previewUploaded ? previewPath : null, finalPath);
+                await cleanupPartialUpload(previewUploaded ? previewPath : null, finalPath, displayUploaded ? displayPath : null);
                 registerOutcome({
                     index: idx,
                     status: 'error',
@@ -497,6 +534,7 @@ const UploadPage = ({ onUpload, onBack, userId = '', currentFolder = '' }) => {
                     key: previewPath,
                     url: previewUrl,
                 },
+                display: displayPath ? { key: displayPath } : null,
                 definitivo: {
                     key: finalPath,
                     url: finalUrl,
@@ -546,7 +584,7 @@ const UploadPage = ({ onUpload, onBack, userId = '', currentFolder = '' }) => {
     const createPreview = (file) => {
         const name = file.name.toLowerCase();
 
-        if (/\.(jpg|jpeg|png|gif|bmp|webp|svg)$/.test(name)) {
+        if (/\.(jpg|jpeg|png|gif|bmp|webp|svg|heic|heif|avif)$/.test(name)) {
             return createPreviewImage(file);
         }
 
@@ -605,23 +643,43 @@ const UploadPage = ({ onUpload, onBack, userId = '', currentFolder = '' }) => {
             };
         });
 
-    const createPreviewImage = (file, maxSize = 400) =>
+    const isHeicLikeFile = (file) => {
+        const name = (file?.name || '').toLowerCase();
+        const type = (file?.type || '').toLowerCase();
+        return type === 'image/heic' || type === 'image/heif' || /\.hei[cf]$/.test(name);
+    };
+
+    const convertHeicToPreviewSource = async (file) => {
+        const { default: heic2any } = await import('heic2any');
+        const converted = await heic2any({
+            blob: file,
+            toType: 'image/jpeg',
+            quality: 0.82,
+        });
+
+        if (Array.isArray(converted)) {
+            return converted[0] || null;
+        }
+
+        return converted || null;
+    };
+
+    const renderImageBlobToJpeg = (sourceBlob, { maxSize = 400, quality = 0.25 } = {}) =>
         new Promise((resolve) => {
-            console.log('Generating createPreviewImage image for file:', file.name);
             const img = new Image();
-            const objectUrl = URL.createObjectURL(file);
+            const objectUrl = URL.createObjectURL(sourceBlob);
             img.src = objectUrl;
 
             img.onload = () => {
                 const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
                 const canvas = document.createElement('canvas');
-                canvas.width = img.width * scale;
-                canvas.height = img.height * scale;
+                canvas.width = Math.max(1, Math.round(img.width * scale));
+                canvas.height = Math.max(1, Math.round(img.height * scale));
                 canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
                 canvas.toBlob((blob) => {
                     URL.revokeObjectURL(objectUrl);
                     resolve(blob);
-                }, 'image/jpeg', 0.25);
+                }, 'image/jpeg', quality);
             };
 
             img.onerror = () => {
@@ -629,6 +687,46 @@ const UploadPage = ({ onUpload, onBack, userId = '', currentFolder = '' }) => {
                 resolve(null);
             };
         });
+
+    const createPreviewImage = (file, maxSize = 400) =>
+        new Promise((resolve) => {
+            console.log('Generating createPreviewImage image for file:', file.name);
+            const generate = async () => {
+                let previewSource = file;
+
+                try {
+                    if (isHeicLikeFile(file)) {
+                        const converted = await convertHeicToPreviewSource(file);
+                        if (converted) {
+                            previewSource = converted;
+                        }
+                    }
+                } catch (error) {
+                    console.warn('Failed to convert HEIC image for preview', file.name, error);
+                }
+
+                const blob = await renderImageBlobToJpeg(previewSource, { maxSize, quality: 0.25 });
+                resolve(blob);
+            };
+
+            generate().catch((error) => {
+                console.warn('Failed to generate image preview', file.name, error);
+                resolve(null);
+            });
+        });
+
+    const createDisplayImage = async (file) => {
+        let displaySource = file;
+
+        if (isHeicLikeFile(file)) {
+            const converted = await convertHeicToPreviewSource(file);
+            if (converted) {
+                displaySource = converted;
+            }
+        }
+
+        return renderImageBlobToJpeg(displaySource, { maxSize: 1600, quality: 0.55 });
+    };
 
     const importFileandPreview = (file, revoke) => {
         return new Promise((resolve) => {

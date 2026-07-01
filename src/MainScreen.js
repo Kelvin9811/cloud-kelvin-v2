@@ -350,6 +350,7 @@ const MainScreen = ({ user, signOut }) => {
     const placeholderPath = `uploads/users/${userId}/previews/${getFolderPlaceholderName(folderName)}`;
     const previewBasePath = `uploads/users/${userId}/${folderName}/previews/`;
     const originalBasePath = `uploads/users/${userId}/${folderName}/original/`;
+    const displayBasePath = `uploads/users/${userId}/${folderName}/display/`;
 
     setDeleteFolderState({ open: true, busy: true, error: null });
 
@@ -362,14 +363,16 @@ const MainScreen = ({ user, signOut }) => {
         }
       }
 
-      const [previewItems, originalItems] = await Promise.all([
+      const [previewItems, originalItems, displayItems] = await Promise.all([
         listAllItemsForPath(previewBasePath),
         listAllItemsForPath(originalBasePath),
+        listAllItemsForPath(displayBasePath),
       ]);
 
       const uniquePaths = [...new Set([
         ...previewItems.map((item) => item.path).filter(Boolean),
         ...originalItems.map((item) => item.path).filter(Boolean),
+        ...displayItems.map((item) => item.path).filter(Boolean),
         placeholderPath,
       ])];
 
