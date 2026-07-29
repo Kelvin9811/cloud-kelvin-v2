@@ -7,6 +7,7 @@ import carpetaLogo from './images/carpeta_logo.jpg';
 import backButtonImage from './images/back-button.png';
 import { getUrl, list, remove, uploadData } from '@aws-amplify/storage';
 import { getShareStatus, publishShare, unpublishShare } from './shareApi';
+import { prepareFolderUpload } from './folderUpload';
 
 const FOLDER_PREFIX = 'CODIGOUNICODECARPETASKOR';
 const PAGE_SIZE = 20;
@@ -57,6 +58,8 @@ const MainScreen = ({ user, signOut }) => {
   const [selected, setSelected] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
+  const folderPickerRef = useRef(null);
+  const [pendingFolderUpload, setPendingFolderUpload] = useState(null);
 
   const [allImages, setAllImages] = useState([]);
   const [images, setImages] = useState([]);
@@ -303,15 +306,13 @@ const MainScreen = ({ user, signOut }) => {
     setFolderError(null);
   };
 
-  const createFolder = async (folderName) => {
-    const name = (folderName || '').trim();
-    if (!name) {
-      setFolderError('El nombre de la carpeta no puede estar vacio');
-      return;
+  const createFolderPlaceholder = async (folderName) => {
+    const userId = user?.userId;
+    if (!userId) {
+      throw new Error('No se encontro el usuario para crear la carpeta');
     }
 
-    const userId = user?.userId;
-    const previewPath = `uploads/users/${userId}/previews/${getFolderPlaceholderName(name)}`;
+    const previewPath = `uploads/users/${userId}/previews/${getFolderPlaceholderName(folderName)}`;
     const response = await fetch(carpetaLogo);
     const blob = await response.blob();
 
@@ -320,15 +321,67 @@ const MainScreen = ({ user, signOut }) => {
       data: blob,
       options: { contentType: 'image/jpeg' }
     }).result;
+  };
+
+  const createFolder = async (folderName) => {
+    const name = (folderName || '').trim();
+    if (!name) {
+      setFolderError('El nombre de la carpeta no puede estar vacio');
+      return;
+    }
 
     try {
+      const userId = user?.userId;
+      await createFolderPlaceholder(name);
       setCurrentFolder(name);
+      setPendingFolderUpload(null);
       setShareState({ loading: false, action: '', shared: false, shareId: null, publicUrlPath: '' });
       closeAddFolderModal();
       resetAndLoadImages(userId, name);
     } catch (error) {
       console.error('Error creando carpeta:', error);
       setFolderError('No se pudo crear la carpeta');
+    }
+  };
+
+  const handleFolderSelection = async (event) => {
+    const selection = prepareFolderUpload(event.target.files);
+    event.target.value = '';
+
+    if (!selection.folderName) {
+      setFolderInput('');
+      setFolderError('No se pudo reconocer la carpeta seleccionada');
+      setAddFolderModalOpen(true);
+      return;
+    }
+
+    if (selection.files.length === 0) {
+      setFolderInput(selection.folderName);
+      setFolderError('La carpeta no contiene archivos directos. Los archivos de subcarpetas no se cargan.');
+      setAddFolderModalOpen(true);
+      return;
+    }
+
+    try {
+      await createFolderPlaceholder(selection.folderName);
+      const ignoredMessage = selection.ignoredCount > 0
+        ? ` Se ignoraron ${selection.ignoredCount} archivo${selection.ignoredCount === 1 ? '' : 's'} de subcarpetas.`
+        : '';
+
+      setPendingFolderUpload({
+        id: `${selection.folderName}-${Date.now()}`,
+        folderName: selection.folderName,
+        files: selection.files,
+        notice: `Carpeta "${selection.folderName}" preparada con ${selection.files.length} archivo${selection.files.length === 1 ? '' : 's'} directo${selection.files.length === 1 ? '' : 's'}.${ignoredMessage}`,
+      });
+      setCurrentFolder(selection.folderName);
+      setShareState({ loading: false, action: '', shared: false, shareId: null, publicUrlPath: '' });
+      setSelected('upload');
+    } catch (error) {
+      console.error('Error preparando carpeta para carga:', error);
+      setFolderInput(selection.folderName);
+      setFolderError('No se pudo crear la carpeta en la nube');
+      setAddFolderModalOpen(true);
     }
   };
 
@@ -493,10 +546,14 @@ const MainScreen = ({ user, signOut }) => {
 
         {selected === 'upload' ? (
           <UploadPage
+            key={pendingFolderUpload?.id || `manual-${currentFolder || 'root'}`}
             userId={user?.userId}
             currentFolder={currentFolder}
+            initialFiles={pendingFolderUpload?.files || []}
+            initialNotice={pendingFolderUpload?.notice || ''}
             onBack={() => {
               setSelected(null);
+              setPendingFolderUpload(null);
               if (currentFolder) {
                 resetAndLoadImages(user?.userId, currentFolder);
               } else {
@@ -508,6 +565,17 @@ const MainScreen = ({ user, signOut }) => {
           <Galery images={images} onDelete={handleDeleteLocal} onSelectFolder={handleSetFolderFromButton} />
         )}
       </div>
+
+      <input
+        ref={folderPickerRef}
+        type="file"
+        multiple
+        webkitdirectory=""
+        directory=""
+        onChange={handleFolderSelection}
+        style={{ display: 'none' }}
+        aria-label="Seleccionar carpeta local"
+      />
 
       {addFolderModalOpen && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
@@ -545,11 +613,21 @@ const MainScreen = ({ user, signOut }) => {
             <button className="fab-menu-item" role="menuitem" onClick={() => { setSelected(null); setMenuOpen(false); resetAndLoadImagesHome(user?.userId); }}>
               <span aria-hidden="true" style={{ marginRight: 8 }}>{'\u{1F3E0}'}</span>Inicio
             </button>
-            <button className="fab-menu-item" role="menuitem" onClick={() => { setSelected('upload'); setMenuOpen(false); }}>
+            <button className="fab-menu-item" role="menuitem" onClick={() => { setPendingFolderUpload(null); setSelected('upload'); setMenuOpen(false); }}>
               <span aria-hidden="true" style={{ marginRight: 8 }}>{'\u2795'}</span>Agregar archivos
             </button>
+            <button
+              className="fab-menu-item"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                folderPickerRef.current?.click();
+              }}
+            >
+              <span aria-hidden="true" style={{ marginRight: 8 }}>{'\u{1F4C2}'}</span>Cargar carpeta
+            </button>
             <button className="fab-menu-item" role="menuitem" onClick={() => { handleAddFolder(); setMenuOpen(false); }}>
-              <span aria-hidden="true" style={{ marginRight: 8 }}>{'\u{1F4C1}'}</span>Agregar carpeta
+              <span aria-hidden="true" style={{ marginRight: 8 }}>{'\u{1F4C1}'}</span>Crear carpeta vacia
             </button>
             {currentFolder && (
               <button

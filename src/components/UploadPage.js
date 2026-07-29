@@ -21,8 +21,16 @@ const EMPTY_SUMMARY = {
     canceledByUser: false,
 };
 
-const UploadPage = ({ onUpload, onBack, userId = '', currentFolder = '' }) => {
-    const [files, setFiles] = useState([]);
+const UploadPage = ({
+    onUpload,
+    onBack,
+    userId = '',
+    currentFolder = '',
+    initialFiles = [],
+    initialNotice = '',
+}) => {
+    const [files, setFiles] = useState(() => Array.from(initialFiles || []));
+    const [selectionNotice, setSelectionNotice] = useState(initialNotice);
     const [isUploading, setIsUploading] = useState(false);
     const [cancelRequested, setCancelRequested] = useState(false);
     const uploadStatusesRef = useRef({});
@@ -91,12 +99,14 @@ const UploadPage = ({ onUpload, onBack, userId = '', currentFolder = '' }) => {
     const handleFiles = (e) => {
         const selectedFiles = Array.from(e.target.files || []);
         setFiles(selectedFiles);
+        setSelectionNotice('');
         resetUploadState();
     };
 
     const handleClearAll = () => {
         console.log('Clearing selected files and upload statuses');
         setFiles([]);
+        setSelectionNotice('');
         setIsUploading(false);
         resetUploadState();
         if (fileInputRef.current) {
@@ -939,6 +949,12 @@ const UploadPage = ({ onUpload, onBack, userId = '', currentFolder = '' }) => {
     return (
         <div className="upload-page card">
             <p className="muted">Selecciona uno o varios archivos para subirlos.</p>
+
+            {selectionNotice && (
+                <div className="upload-selection-notice" role="status">
+                    {selectionNotice}
+                </div>
+            )}
 
             <div className="upload-input-row">
                 <input

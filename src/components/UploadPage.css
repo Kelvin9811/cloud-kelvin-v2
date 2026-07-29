@@ -92,6 +92,14 @@
   margin: 0;
 }
 
+.upload-selection-notice {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(185, 136, 255, 0.1);
+  border: 1px solid rgba(185, 136, 255, 0.24);
+  color: var(--text-dark);
+}
+
 .upload-progress-panel {
   display: flex;
   flex-direction: column;
