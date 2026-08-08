@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import './UploadPage.css';
 import { getUrl, list, remove, uploadData } from '@aws-amplify/storage';
 import PdfLogo from '../images/pdf_logo.png';
@@ -9,6 +9,7 @@ import ZipLogo from '../images/zip_logo.png';
 import CodeLogo from '../images/code_logo.png';
 import AudioLogo from '../images/audio_logo.png';
 import FileLogo from '../images/file_logo.png';
+import { createUploadDiagnostics, getFileDiagnostic } from '../uploadDiagnostics';
 
 const EMPTY_SUMMARY = {
     total: 0,
@@ -41,6 +42,22 @@ const UploadPage = ({
 
     const fileInputRef = useRef(null);
     const cancelRequestedRef = useRef(false);
+    const diagnosticsRef = useRef(null);
+    const pickerAttemptRef = useRef({ id: 0, active: false, inputReceived: false, changeReceived: false });
+    const pickerTimersRef = useRef([]);
+
+    if (!diagnosticsRef.current) {
+        diagnosticsRef.current = createUploadDiagnostics({ userId, currentFolder });
+    }
+
+    const diagnostics = diagnosticsRef.current;
+
+    useEffect(() => () => {
+        pickerTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+        pickerTimersRef.current = [];
+        void diagnostics.flush();
+        diagnostics.dispose();
+    }, [diagnostics]);
 
     const withTimeout = (promise, ms, label) =>
         new Promise((resolve, reject) => {
@@ -96,8 +113,92 @@ const UploadPage = ({
         setCurrentBatch({ current: 0, total: 0 });
     };
 
+    const clearPickerTimers = () => {
+        pickerTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+        pickerTimersRef.current = [];
+    };
+
+    const handlePickerPointerDown = () => {
+        diagnostics.log('info', 'file_picker.pointer_down', {
+            previousFileCount: fileInputRef.current?.files?.length || 0,
+            inputDisabled: Boolean(fileInputRef.current?.disabled),
+        }, { flushNow: true });
+    };
+
+    const handlePickerClick = () => {
+        clearPickerTimers();
+        const attemptId = pickerAttemptRef.current.id + 1;
+        pickerAttemptRef.current = {
+            id: attemptId,
+            active: true,
+            inputReceived: false,
+            changeReceived: false,
+            openedAt: Date.now(),
+        };
+
+        diagnostics.log('info', 'file_picker.open_requested', {
+            attemptId,
+            multiple: Boolean(fileInputRef.current?.multiple),
+            accept: fileInputRef.current?.accept || null,
+            previousFileCount: fileInputRef.current?.files?.length || 0,
+        }, { flushNow: true });
+
+        [2000, 10000, 30000, 90000].forEach((delayMs) => {
+            const timer = window.setTimeout(() => {
+                const attempt = pickerAttemptRef.current;
+                if (!attempt.active || attempt.id !== attemptId || attempt.changeReceived) return;
+                diagnostics.log(delayMs >= 30000 ? 'warn' : 'info', 'file_picker.awaiting_browser_event', {
+                    attemptId,
+                    waitedMs: Date.now() - attempt.openedAt,
+                    inputReceived: attempt.inputReceived,
+                    currentFileCount: fileInputRef.current?.files?.length || 0,
+                    documentVisibility: document.visibilityState,
+                    windowFocused: document.hasFocus(),
+                }, { flushNow: delayMs >= 10000 });
+            }, delayMs);
+            pickerTimersRef.current.push(timer);
+        });
+    };
+
+    const handlePickerInput = (event) => {
+        const count = event.currentTarget?.files?.length || 0;
+        pickerAttemptRef.current.inputReceived = true;
+        diagnostics.log('info', 'file_picker.input_received', {
+            attemptId: pickerAttemptRef.current.id,
+            fileCount: count,
+            elapsedSinceOpenMs: pickerAttemptRef.current.openedAt
+                ? Date.now() - pickerAttemptRef.current.openedAt
+                : null,
+        }, { flushNow: true });
+    };
+
+    const handlePickerCancel = (event) => {
+        clearPickerTimers();
+        const count = event.currentTarget?.files?.length || 0;
+        const attempt = pickerAttemptRef.current;
+        diagnostics.log('warn', 'file_picker.cancel_received', {
+            attemptId: attempt.id,
+            fileCount: count,
+            inputReceived: attempt.inputReceived,
+            elapsedSinceOpenMs: attempt.openedAt ? Date.now() - attempt.openedAt : null,
+        }, { flushNow: true });
+        pickerAttemptRef.current = { ...attempt, active: false };
+        setSelectionNotice('El selector se cerró sin entregar archivos. Si pulsaste “Agregar” o el visto, descarga el diagnóstico para revisar Safari.');
+    };
+
     const handleFiles = (e) => {
         const selectedFiles = Array.from(e.target.files || []);
+        clearPickerTimers();
+        const attempt = pickerAttemptRef.current;
+        pickerAttemptRef.current = { ...attempt, active: false, changeReceived: true };
+        diagnostics.log('info', 'file_picker.change_received', {
+            attemptId: attempt.id,
+            count: selectedFiles.length,
+            totalBytes: selectedFiles.reduce((sum, file) => sum + (file.size || 0), 0),
+            inputReceived: attempt.inputReceived,
+            elapsedSinceOpenMs: attempt.openedAt ? Date.now() - attempt.openedAt : null,
+            files: selectedFiles.map((file, index) => getFileDiagnostic(file, index)),
+        }, { flushNow: true });
         setFiles(selectedFiles);
         setSelectionNotice('');
         resetUploadState();
@@ -105,6 +206,7 @@ const UploadPage = ({
 
     const handleClearAll = () => {
         console.log('Clearing selected files and upload statuses');
+        diagnostics.log('info', 'selection.cleared', { selectedCount: files.length });
         setFiles([]);
         setSelectionNotice('');
         setIsUploading(false);
@@ -260,6 +362,11 @@ const UploadPage = ({
     };
 
     const getDuplicateNameSet = async (filesToCheck) => {
+        const startedAt = performance.now();
+        diagnostics.log('info', 'duplicates.scan_started', {
+            selectedCount: filesToCheck.length,
+            originalPath: getOriginalListPath(),
+        });
         const duplicateNames = new Set();
         const normalizedNames = filesToCheck.map((file) => normalizeFileName(file.name));
         const seenInSelection = new Set();
@@ -283,8 +390,17 @@ const UploadPage = ({
                     duplicateNames.add(name);
                 }
             });
+            diagnostics.log('info', 'duplicates.scan_finished', {
+                existingObjectCount: existingItems.length,
+                duplicateCount: duplicateNames.size,
+                durationMs: Math.round(performance.now() - startedAt),
+            });
         } catch (error) {
             console.warn('No se pudo validar duplicados contra S3', error);
+            diagnostics.log('warn', 'duplicates.scan_failed', {
+                durationMs: Math.round(performance.now() - startedAt),
+                error,
+            }, { flushNow: true });
         }
 
         return duplicateNames;
@@ -343,11 +459,20 @@ const UploadPage = ({
         const results = [];
         const toUpload = Array.from(selectedFiles);
         const safeBatchSize = Math.max(1, Number(batchSize) || 10);
+        diagnostics.log('info', 'upload.queue_started', {
+            fileCount: toUpload.length,
+            totalBytes: toUpload.reduce((sum, file) => sum + (file.size || 0), 0),
+            batchSize: safeBatchSize,
+            files: toUpload.map((file, index) => getFileDiagnostic(file, index)),
+        }, { flushNow: true });
         const duplicateNames = await getDuplicateNameSet(toUpload);
         const totalBatches = Math.max(1, Math.ceil(toUpload.length / safeBatchSize));
 
         const uploadSingle = async (file, idx) => {
+            const fileDiagnostic = getFileDiagnostic(file, idx);
+            const fileStartedAt = performance.now();
             if (cancelRequestedRef.current) {
+                diagnostics.log('warn', 'file.canceled_before_start', fileDiagnostic);
                 registerOutcome({
                     index: idx,
                     status: 'canceled',
@@ -360,6 +485,7 @@ const UploadPage = ({
             const normalizedName = normalizeFileName(file.name);
             if (duplicateNames.has(normalizedName)) {
                 console.warn('Skipping duplicate file:', file.name);
+                diagnostics.log('warn', 'file.skipped_duplicate', fileDiagnostic);
                 registerOutcome({
                     index: idx,
                     status: 'duplicate',
@@ -370,6 +496,7 @@ const UploadPage = ({
             }
 
             uploadStatusesRef.current = { ...uploadStatusesRef.current, [idx]: 'uploading' };
+            diagnostics.log('info', 'file.processing_started', fileDiagnostic);
 
             const uuid = crypto.randomUUID();
             const cleanName = file.name.replace(/\s+/g, '_');
@@ -389,20 +516,51 @@ const UploadPage = ({
 
             console.log(`Prepared upload for file="${file.name}" finalName="${fileDateToken}_${uuid}_${cleanName}" dateSource="${preferredDateSource}" dateIso="${preferredDateIso}"`);
             console.log('Upload paths -> preview:', previewPath, ' final:', finalPath, ' display:', displayPath);
+            diagnostics.log('info', 'file.paths_prepared', {
+                ...fileDiagnostic,
+                dateSource: preferredDateSource,
+                creationDate: preferredDateIso,
+                isHeicLike: shouldCreateDisplayImage,
+                hasPreviewPath: Boolean(previewPath),
+                hasDisplayPath: Boolean(displayPath),
+            });
 
             let previewBlob = null;
+            const previewStartedAt = performance.now();
             try {
-                previewBlob = await withTimeout(createPreview(file), 30000, `preview generation for ${file.name}`);
+                previewBlob = await withTimeout(createPreview(file), 30000, `preview generation for ${fileDiagnostic.fileId}`);
+                diagnostics.log('info', 'file.preview_generated', {
+                    ...fileDiagnostic,
+                    durationMs: Math.round(performance.now() - previewStartedAt),
+                    outputBytes: previewBlob?.size || previewBlob?.[0]?.size || 0,
+                    outputKind: Array.isArray(previewBlob) ? 'array' : previewBlob?.constructor?.name || typeof previewBlob,
+                });
             } catch (previewError) {
                 console.warn('Preview generation failed or timed out, continuing without preview for', file.name, previewError);
+                diagnostics.log('warn', 'file.preview_failed', {
+                    ...fileDiagnostic,
+                    durationMs: Math.round(performance.now() - previewStartedAt),
+                    error: previewError,
+                }, { flushNow: true });
             }
 
             let displayBlob = null;
             if (shouldCreateDisplayImage) {
+                const displayStartedAt = performance.now();
                 try {
-                    displayBlob = await withTimeout(createDisplayImage(file), 45000, `display generation for ${file.name}`);
+                    displayBlob = await withTimeout(createDisplayImage(file), 45000, `display generation for ${fileDiagnostic.fileId}`);
+                    diagnostics.log('info', 'file.display_generated', {
+                        ...fileDiagnostic,
+                        durationMs: Math.round(performance.now() - displayStartedAt),
+                        outputBytes: displayBlob?.size || 0,
+                    });
                 } catch (displayError) {
                     console.warn('Display generation failed or timed out, continuing without display for', file.name, displayError);
+                    diagnostics.log('warn', 'file.display_failed', {
+                        ...fileDiagnostic,
+                        durationMs: Math.round(performance.now() - displayStartedAt),
+                        error: displayError,
+                    }, { flushNow: true });
                 }
             }
 
@@ -434,6 +592,52 @@ const UploadPage = ({
             let previewUploaded = false;
             let displayUploaded = false;
 
+            const runStorageUpload = async ({ stage, path, data, contentType, metadata, timeoutMs }) => {
+                const uploadStartedAt = performance.now();
+                let lastLoggedPercent = -25;
+                diagnostics.log('info', 'storage.upload_started', {
+                    ...fileDiagnostic,
+                    stage,
+                    payloadBytes: data?.size ?? data?.byteLength ?? null,
+                    contentType,
+                    timeoutMs,
+                });
+
+                const task = uploadData({
+                    path,
+                    data,
+                    options: {
+                        contentType,
+                        metadata,
+                        onProgress: ({ transferredBytes, totalBytes }) => {
+                            const percent = totalBytes > 0
+                                ? Math.min(100, Math.round((transferredBytes / totalBytes) * 100))
+                                : null;
+                            if (percent === null || percent === 100 || percent >= lastLoggedPercent + 25) {
+                                if (percent !== null) lastLoggedPercent = percent;
+                                diagnostics.log('info', 'storage.upload_progress', {
+                                    ...fileDiagnostic,
+                                    stage,
+                                    transferredBytes,
+                                    totalBytes,
+                                    percent,
+                                });
+                            }
+                        },
+                    },
+                });
+
+                const result = await withTimeout(task.result, timeoutMs, `${stage} upload for ${fileDiagnostic.fileId}`);
+                diagnostics.log('info', 'storage.upload_finished', {
+                    ...fileDiagnostic,
+                    stage,
+                    durationMs: Math.round(performance.now() - uploadStartedAt),
+                    resultSize: result?.size ?? null,
+                    hasETag: Boolean(result?.eTag),
+                }, { flushNow: stage === 'original' });
+                return result;
+            };
+
             try {
                 if (cancelRequestedRef.current) {
                     registerOutcome({
@@ -446,38 +650,38 @@ const UploadPage = ({
                 }
 
                 if (previewToUpload) {
-                    await withTimeout(uploadData({
+                    await runStorageUpload({
+                        stage: 'preview',
                         path: previewPath,
                         data: previewToUpload,
-                        options: {
-                            contentType: 'image/jpeg',
-                        },
+                        contentType: 'image/jpeg',
                         metadata: {
                             originalName: file.name,
                             isPreview: 'true',
                             extension: file.type,
                             creationDate: preferredDateIso,
                             dateSource: preferredDateSource
-                        }
-                    }).result, 120000, `preview upload for ${file.name}`);
+                        },
+                        timeoutMs: 120000,
+                    });
                     previewUploaded = true;
                 }
 
                 if (displayBlob && displayPath) {
-                    await withTimeout(uploadData({
+                    await runStorageUpload({
+                        stage: 'display',
                         path: displayPath,
                         data: displayBlob,
-                        options: {
-                            contentType: 'image/jpeg',
-                        },
+                        contentType: 'image/jpeg',
                         metadata: {
                             originalName: file.name,
                             isDisplay: 'true',
                             extension: 'image/jpeg',
                             creationDate: preferredDateIso,
                             dateSource: preferredDateSource
-                        }
-                    }).result, 180000, `display upload for ${file.name}`);
+                        },
+                        timeoutMs: 180000,
+                    });
                     displayUploaded = true;
                 }
 
@@ -494,22 +698,28 @@ const UploadPage = ({
                     return { skipped: true, reason: 'canceled', name: file.name };
                 }
 
-                await withTimeout(uploadData({
+                await runStorageUpload({
+                    stage: 'original',
                     path: finalPath,
                     data: file,
-                    options: {
-                        contentType: file.type || 'application/octet-stream',
-                    },
+                    contentType: file.type || 'application/octet-stream',
                     metadata: {
                         originalName: file.name,
                         isPreview: 'false',
                         extension: file.type,
                         creationDate: preferredDateIso,
                         dateSource: preferredDateSource
-                    }
-                }).result, 300000, `final upload for ${file.name}`);
+                    },
+                    timeoutMs: 300000,
+                });
 
                 console.log('File uploaded successfully:', file.name);
+                diagnostics.log('info', 'file.completed', {
+                    ...fileDiagnostic,
+                    durationMs: Math.round(performance.now() - fileStartedAt),
+                    previewUploaded,
+                    displayUploaded,
+                }, { flushNow: true });
                 registerOutcome({
                     index: idx,
                     status: 'done',
@@ -517,6 +727,13 @@ const UploadPage = ({
                 });
             } catch (error) {
                 console.error('Error uploading file:', error);
+                diagnostics.log('error', 'file.failed', {
+                    ...fileDiagnostic,
+                    durationMs: Math.round(performance.now() - fileStartedAt),
+                    previewUploaded,
+                    displayUploaded,
+                    error,
+                }, { flushNow: true });
                 await cleanupPartialUpload(previewUploaded ? previewPath : null, finalPath, displayUploaded ? displayPath : null);
                 registerOutcome({
                     index: idx,
@@ -566,6 +783,14 @@ const UploadPage = ({
             }
 
             console.log(`Starting upload batch ${batchNumber} (files ${start}..${Math.min(start + safeBatchSize - 1, total - 1)})`);
+            const batchStartedAt = performance.now();
+            diagnostics.log('info', 'batch.started', {
+                batchNumber,
+                totalBatches,
+                startIndex: start,
+                fileCount: batch.length,
+                totalBytes: batch.reduce((sum, file) => sum + (file.size || 0), 0),
+            }, { flushNow: true });
 
             const batchResults = await Promise.allSettled(
                 batch.map((file, indexInBatch) => uploadSingle(file, start + indexInBatch))
@@ -580,6 +805,13 @@ const UploadPage = ({
             });
 
             console.log(`Finished upload batch ${batchNumber}`);
+            diagnostics.log('info', 'batch.finished', {
+                batchNumber,
+                totalBatches,
+                durationMs: Math.round(performance.now() - batchStartedAt),
+                fulfilledCount: batchResults.filter((result) => result.status === 'fulfilled').length,
+                rejectedCount: batchResults.filter((result) => result.status === 'rejected').length,
+            }, { flushNow: true });
 
             if (cancelRequestedRef.current) {
                 const nextStart = start + batch.length;
@@ -588,6 +820,10 @@ const UploadPage = ({
             }
         }
 
+        diagnostics.log('info', 'upload.queue_finished', {
+            resultCount: results.length,
+            cancelRequested: cancelRequestedRef.current,
+        }, { flushNow: true });
         return results;
     };
 
@@ -660,11 +896,23 @@ const UploadPage = ({
     };
 
     const convertHeicToPreviewSource = async (file) => {
+        const startedAt = performance.now();
+        diagnostics.log('info', 'heic.conversion_started', {
+            mimeType: file?.type || null,
+            sizeBytes: file?.size || 0,
+        });
         const { default: heic2any } = await import('heic2any');
         const converted = await heic2any({
             blob: file,
             toType: 'image/jpeg',
             quality: 0.82,
+        });
+
+        diagnostics.log('info', 'heic.conversion_finished', {
+            durationMs: Math.round(performance.now() - startedAt),
+            inputBytes: file?.size || 0,
+            outputBytes: Array.isArray(converted) ? converted[0]?.size || 0 : converted?.size || 0,
+            outputCount: Array.isArray(converted) ? converted.length : converted ? 1 : 0,
         });
 
         if (Array.isArray(converted)) {
@@ -901,6 +1149,13 @@ const UploadPage = ({
     const handleUpload = async () => {
         if (files.length === 0 || isUploading) return;
 
+        const uploadStartedAt = performance.now();
+        diagnostics.log('info', 'upload.started', {
+            fileCount: files.length,
+            totalBytes: files.reduce((sum, file) => sum + (file.size || 0), 0),
+            batchSize,
+        }, { flushNow: true });
+
         cancelRequestedRef.current = false;
         setCancelRequested(false);
         uploadStatusesRef.current = {};
@@ -923,6 +1178,12 @@ const UploadPage = ({
                 onUpload(files);
             }
             await uploadFiles(files);
+        } catch (error) {
+            diagnostics.log('error', 'upload.unexpected_failure', {
+                durationMs: Math.round(performance.now() - uploadStartedAt),
+                error,
+            }, { flushNow: true });
+            throw error;
         } finally {
             setIsUploading(false);
             setUploadSummary((prev) => ({
@@ -930,11 +1191,16 @@ const UploadPage = ({
                 finished: true,
                 canceledByUser: cancelRequestedRef.current,
             }));
+            diagnostics.log('info', 'upload.finished', {
+                durationMs: Math.round(performance.now() - uploadStartedAt),
+                cancelRequested: cancelRequestedRef.current,
+            }, { flushNow: true });
         }
     };
 
     const handleCancelUpload = () => {
         if (!isUploading) return;
+        diagnostics.log('warn', 'upload.cancel_requested', {}, { flushNow: true });
         cancelRequestedRef.current = true;
         setCancelRequested(true);
     };
@@ -961,7 +1227,11 @@ const UploadPage = ({
                     ref={fileInputRef}
                     type="file"
                     multiple
+                    onPointerDown={handlePickerPointerDown}
+                    onClick={handlePickerClick}
+                    onInput={handlePickerInput}
                     onChange={handleFiles}
+                    onCancel={handlePickerCancel}
                     disabled={isUploading}
                 />
             </div>
@@ -1048,6 +1318,14 @@ const UploadPage = ({
                     >
                         Limpiar
                     </button>
+                    <button
+                        className="btn-clear"
+                        onClick={() => diagnostics.download()}
+                        style={{ width: 190 }}
+                        title={`Sesion de diagnostico: ${diagnostics.sessionId}`}
+                    >
+                        Descargar registros
+                    </button>
                     {shouldShowBackButton && (
                         <button
                             className="btn-clear"
@@ -1061,6 +1339,9 @@ const UploadPage = ({
                             Regresar
                         </button>
                     )}
+                </div>
+                <div className="upload-diagnostics-id">
+                    Diagnóstico persistente: <code>{diagnostics.sessionId}</code>
                 </div>
             </div>
         </div>

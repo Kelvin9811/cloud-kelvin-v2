@@ -211,6 +211,17 @@
   cursor: default;
 }
 
+.upload-diagnostics-id {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.upload-diagnostics-id code {
+  user-select: all;
+}
+
 .upload-list ul {
   margin: 8px 0 0;
   padding-left: 18px;

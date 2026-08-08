@@ -377,7 +377,12 @@ const getShareRecordById = async (shareId) => {
 };
 
 const checkGroup = function (req, res, next) {
-  if (req.path === '/signUserOut' || req.path.startsWith('/shares') || req.path.startsWith('/public/')) {
+  if (
+    req.path === '/signUserOut' ||
+    req.path.startsWith('/shares') ||
+    req.path.startsWith('/public/') ||
+    req.path.startsWith('/client-logs/')
+  ) {
     return next();
   }
 
@@ -400,6 +405,52 @@ const checkGroup = function (req, res, next) {
 };
 
 app.all('*', checkGroup);
+
+app.post('/client-logs/upload', async (req, res, next) => {
+  try {
+    const userId = ensureSignedInUser(req, req.body?.userId);
+    const sessionId = String(req.body?.sessionId || '');
+    const events = Array.isArray(req.body?.events) ? req.body.events : [];
+    const payloadSize = Buffer.byteLength(JSON.stringify(req.body || {}), 'utf8');
+
+    if (!/^[a-z0-9-]{8,80}$/i.test(sessionId)) {
+      const err = new Error('invalid diagnostics sessionId');
+      err.statusCode = 400;
+      throw err;
+    }
+    if (!events.length || events.length > 50 || payloadSize > 128 * 1024) {
+      const err = new Error('invalid diagnostics event batch');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const requestId = req?.apiGateway?.event?.requestContext?.requestId || null;
+    events.forEach((event) => {
+      console.log(JSON.stringify({
+        logType: 'client_upload',
+        sessionId,
+        authenticatedUserId: userId,
+        apiRequestId: requestId,
+        clientEvent: {
+          sequence: Number(event?.sequence) || null,
+          timestamp: typeof event?.timestamp === 'string' ? event.timestamp.slice(0, 64) : null,
+          elapsedMs: Number(event?.elapsedMs) || 0,
+          level: typeof event?.level === 'string' ? event.level.slice(0, 16) : 'info',
+          event: typeof event?.event === 'string' ? event.event.slice(0, 100) : 'unknown',
+          online: Boolean(event?.online),
+          visibilityState: typeof event?.visibilityState === 'string'
+            ? event.visibilityState.slice(0, 24)
+            : null,
+          details: event?.details && typeof event.details === 'object' ? event.details : {},
+        },
+      }));
+    });
+
+    res.status(202).json({ accepted: events.length, sessionId, requestId });
+  } catch (err) {
+    next(err);
+  }
+});
 
 app.get('/shares/status', async (req, res, next) => {
   try {
